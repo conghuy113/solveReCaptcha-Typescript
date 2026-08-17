@@ -18,6 +18,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = Path(__file__).with_name("model-assets.json")
+VOLATILE_ONNX_METADATA_KEYS = frozenset({"date"})
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,24 @@ def verify_generated_asset(asset: GeneratedAsset) -> tuple[bool, str]:
     return True, "verified"
 
 
+def normalize_generated_onnx(path: Path) -> None:
+    """Remove volatile exporter metadata and serialize it in a stable order."""
+    import onnx
+
+    model = onnx.load(str(path), load_external_data=False)
+    stable_metadata = sorted(
+        (entry.key, entry.value)
+        for entry in model.metadata_props
+        if entry.key not in VOLATILE_ONNX_METADATA_KEYS
+    )
+    model.ClearField("metadata_props")
+    for key, value in stable_metadata:
+        entry = model.metadata_props.add()
+        entry.key = key
+        entry.value = value
+    onnx.save_model(model, str(path))
+
+
 def export_generated_asset(asset: GeneratedAsset) -> None:
     if asset.name != "yolo12x.onnx":
         raise ValueError(f"No exporter is configured for {asset.name}")
@@ -196,6 +215,7 @@ def export_generated_asset(asset: GeneratedAsset) -> None:
     if exported != asset.target.resolve():
         asset.target.parent.mkdir(parents=True, exist_ok=True)
         exported.replace(asset.target)
+    normalize_generated_onnx(asset.target)
 
 
 def prepare_assets(*, check_only: bool) -> None:
@@ -215,6 +235,8 @@ def prepare_assets(*, check_only: bool) -> None:
             failures.append(f"{asset.name}: {reason}")
 
     for asset in load_generated_assets():
+        if asset.target.is_file() and not check_only:
+            normalize_generated_onnx(asset.target)
         valid, reason = verify_generated_asset(asset)
         if valid:
             print(f"Verified generated model: {asset.name}")
