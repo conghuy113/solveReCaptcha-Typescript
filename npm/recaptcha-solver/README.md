@@ -5,10 +5,9 @@ browser. Python and a hosted inference API are not required on the consumer
 machine.
 
 The package entrypoint exports only `solveReCaptcha()` and its TypeScript
-types. Classification, detection, CDP, and challenge-navigation
-implementations are internal and are being integrated incrementally; the
-current solve path still uses a transitional platform worker installed as an
-optional dependency.
+types. Classification, detection, CDP, challenge handlers, and solve
+orchestration run directly in TypeScript and remain internal implementation
+details.
 
 ```ts
 import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
@@ -40,7 +39,8 @@ Set `RECAPTCHA_SOLVER_CACHE_DIR` to move the cache, or
 `RECAPTCHA_SOLVER_MODEL_DIR` to use a directory that already contains both
 verified model files. For offline or image-build installs, set
 `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1`; the first call to `solveReCaptcha`
-will verify/download the models unless `RECAPTCHA_SOLVER_MODEL_DIR` is set.
+will verify/download the models before the first image challenge unless
+`RECAPTCHA_SOLVER_MODEL_DIR` is set.
 
 ## License
 

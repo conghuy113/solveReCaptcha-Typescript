@@ -24,12 +24,18 @@ export type CompletionReason =
   | "url_changed"
   | "checkbox_solved";
 
+export type CaptchaType =
+  | "dynamic_3x3"
+  | "selection_3x3"
+  | "square_4x4"
+  | "no_challenge";
+
 export interface SolveReCaptchaResult {
   status: "success";
   message: string;
   clickCheckbox: boolean;
   token: string | null;
-  captchaType: string;
+  captchaType: CaptchaType;
   attempts: number;
   timeTaken: number;
   cookies: BrowserCookie[];

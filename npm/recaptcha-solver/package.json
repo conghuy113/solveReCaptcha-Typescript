@@ -43,7 +43,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts src/postinstall.ts --format esm --dts --sourcemap --clean",
-    "test": "tsx --test test/*.test.ts",
+    "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit",
     "smoke:cdp": "tsx scripts/cdp-smoke.ts",
     "postinstall": "node ./dist/postinstall.js",

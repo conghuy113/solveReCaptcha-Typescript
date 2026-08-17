@@ -10,3 +10,7 @@ export class ChallengeError extends Error {
 export class ChallengeElementNotFoundError extends ChallengeError {}
 
 export class ChallengeImageDownloadError extends ChallengeError {}
+
+export class LowConfidenceError extends ChallengeError {}
+
+export class UnsupportedChallengeError extends ChallengeError {}

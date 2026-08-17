@@ -12,6 +12,12 @@
 - Checkbox/challenge iframe navigation, target/title/image extraction, tile and
   control actions, bounded trusted image downloads, and in-memory grid image
   composition.
+- Selection 3x3, dynamic 3x3, and square 4x4 handlers with multilingual target
+  mapping, confidence thresholds, bounded replacement rounds, and reload
+  signals.
+- Direct TypeScript `solveReCaptcha()` orchestration with model initialization,
+  challenge retries, verification, token/cookie/URL extraction, and guaranteed
+  CDP detach.
 
 All modules are internal. The package entrypoint continues to export only
 `solveReCaptcha()` and its types.
@@ -29,12 +35,9 @@ user-owned browser session.
 
 ## Remaining migration work
 
-1. Port captcha handlers, retry policy, and solve orchestration to TypeScript.
-2. Connect the internal navigation, classification, detection, and CDP modules to
-   `solveReCaptcha()`.
-3. Compare end-to-end behavior against the transitional worker on an
+1. Compare end-to-end behavior against the transitional worker on an
    authorized test page.
-4. Remove `WorkerClient`, optional platform packages, native build workflows,
+2. Remove `WorkerClient`, optional platform packages, native build workflows,
    and Python runtime artifacts only after parity tests pass.
-5. Publish models and the npm package only after provenance and release gates
+3. Publish models and the npm package only after provenance and release gates
    are satisfied.
