@@ -3,14 +3,14 @@
   "assets": [
     {
       "name": "recaptcha_classification_57k.onnx",
-      "target": "src/vision_ai_recaptcha_solver/models/recaptcha_classification_57k.onnx",
+      "target": "build/model-release/recaptcha_classification_57k.onnx",
       "url": "https://huggingface.co/DannyLuna/recaptcha-classification-57k/resolve/main/recaptcha_classification_57k.onnx?download=true",
       "sha256": "4092e8917ee8c2963895d66ba10a97d6ef975c468a95858a8a7bd9e70681b65d",
       "size": 113597179
     },
     {
       "name": "yolo12x.pt",
-      "target": "yolo12x.pt",
+      "target": "build/model-release/yolo12x.pt",
       "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo12x.pt",
       "sha256": "682ce8dadee004dbe964950f1bf3eda451671815a6ed62db80b398916b9b7c6f",
       "size": 119322638
@@ -19,8 +19,8 @@
   "generated_assets": [
     {
       "name": "yolo12x.onnx",
-      "target": "yolo12x.onnx",
-      "source": "yolo12x.pt",
+      "target": "build/model-release/yolo12x.onnx",
+      "source": "build/model-release/yolo12x.pt",
       "minimum_size": 200000000
     }
   ]

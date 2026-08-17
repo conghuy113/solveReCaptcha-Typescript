@@ -87,12 +87,11 @@ test("runs batched classification and maps target confidences", async () => {
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const modelPath = join(
   projectRoot,
-  "src",
-  "vision_ai_recaptcha_solver",
-  "models",
+  "build",
+  "model-release",
   "recaptcha_classification_57k.onnx",
 );
-const imagePath = join(projectRoot, "src", "vision_ai_recaptcha_solver", "assets", "bus.jpg");
+const imagePath = fileURLToPath(new URL("./fixtures/classification-bus.jpg", import.meta.url));
 
 test(
   "matches the Python classification oracle on the real ONNX model",

@@ -24,20 +24,20 @@ All modules are internal. The package entrypoint continues to export only
 
 ## Verification
 
-CI runs TypeScript typechecking, deterministic inference/CDP tests, package
-tests, and the ESM/declaration build. Detection tests include real ONNX
-execution when the local model asset is present. CDP tests use an in-process
-fake and never contact reCAPTCHA.
+CI runs TypeScript typechecking, deterministic inference/CDP/solve integration
+tests, a public-export assertion, the ESM/declaration build, and a clean
+tarball-install smoke test. Real ONNX parity fixtures run when the local model
+assets are available. CDP tests use an in-process fake and never contact
+reCAPTCHA.
 
-An optional `smoke:cdp` script attaches to an authorized page in a local Chrome
-remote-debugging session. It is intentionally not a CI gate because CI has no
-user-owned browser session.
+Optional `smoke:cdp` and explicitly guarded `smoke:solve` scripts attach to an
+authorized page in a local Chrome remote-debugging session. They are
+intentionally not CI gates because CI has no user-owned browser session.
 
-## Remaining migration work
+## Final status
 
-1. Compare end-to-end behavior against the transitional worker on an
-   authorized test page.
-2. Remove `WorkerClient`, optional platform packages, native build workflows,
-   and Python runtime artifacts only after parity tests pass.
-3. Publish models and the npm package only after provenance and release gates
-   are satisfied.
+The TypeScript migration and deterministic parity gate are complete.
+`WorkerClient`, optional platform packages, native build workflows, and Python
+runtime artifacts have been removed. A maintainer may run `smoke:solve` on an
+authorized page before release; model and npm publication remain gated by
+provenance and release checks.

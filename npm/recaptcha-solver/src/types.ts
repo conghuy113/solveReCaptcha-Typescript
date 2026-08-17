@@ -42,10 +42,3 @@ export interface SolveReCaptchaResult {
   currentUrl: string;
   completionReason: CompletionReason;
 }
-
-export interface WorkerErrorPayload {
-  code: string;
-  message: string;
-  type: string;
-  details?: Record<string, unknown>;
-}

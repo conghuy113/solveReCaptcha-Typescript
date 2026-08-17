@@ -3,7 +3,7 @@
 ## Outcome
 
 Both ONNX models are distributed as immutable GitHub Release assets rather
-than committed to Git or duplicated across platform packages:
+than committed to Git or embedded in the npm package:
 
 - `recaptcha_classification_57k.onnx`
 - `yolo12x.onnx`

@@ -11,9 +11,9 @@ Inference runs locally with ONNX models. The library does not send challenge
 images to a hosted inference service, does not launch Chrome, and does not close
 the user's browser.
 
-> **Development status:** the consumer solve path is implemented in TypeScript.
-> End-to-end parity, transitional-worker cleanup, and the documented model/npm
-> release gates must still pass before publication.
+> **Development status:** the consumer solve path and deterministic parity suite
+> are implemented in TypeScript. The Python/native worker has been retired.
+> Model provenance and npm release gates must still pass before publication.
 
 ## Features
 
@@ -46,8 +46,8 @@ the user's browser.
 npm install @conghuy113/recaptcha-solver
 ```
 
-Transitional platform-worker packages remain in the workspace until the parity
-and cleanup phase, but `solveReCaptcha()` no longer invokes them.
+The installed package contains the TypeScript implementation only. It does not
+install Python, a native worker, or per-platform companion packages.
 
 ## Start Chrome for remote debugging
 
@@ -167,18 +167,16 @@ pnpm --dir npm --filter @conghuy113/recaptcha-solver run test
 pnpm --dir npm --filter @conghuy113/recaptcha-solver run build
 ```
 
-The repository also retains the transitional worker implementation and its
-regression suite. Contributors changing that layer should run:
+Run the repository compliance gate after changing package metadata, release
+workflows, model routing, or licensing files:
 
 ```bash
-python -m pytest -q
 python packaging/check_compliance.py
 ```
 
 ### Repository layout
 
 - `npm/recaptcha-solver/` — public TypeScript package.
-- `npm/platforms/` — transitional worker packages retained until parity cleanup.
 - `npm/recaptcha-solver/src/models/` — manifest validation, download, cache,
   and integrity checks.
 - `npm/recaptcha-solver/src/inference/` — TypeScript ONNX inference modules.
@@ -188,9 +186,10 @@ python packaging/check_compliance.py
   challenge handlers, retry policy, guarded image download, and in-memory grid
   image composition.
 - `npm/recaptcha-solver/src/solver.ts` — internal TypeScript solve orchestration.
-- `packaging/` — worker builds, package smoke tests, compliance checks, and
-  model-release tooling.
-- `tests/` — transitional worker regression tests.
+- `npm/recaptcha-solver/test/` — deterministic unit, integration, parity, and
+  public-API tests.
+- `packaging/` — package smoke tests, compliance checks, and model-release
+  tooling. Its Python scripts are maintainer tooling, not a consumer runtime.
 
 To smoke-test the TypeScript CDP adapter against an authorized local page,
 start Chrome with remote debugging, open the page, and run:
@@ -202,6 +201,19 @@ CDP_TARGET_URL=https://example.com CDP_PORT=9222 \
 
 This live smoke test is optional and is not run by CI. CI uses deterministic
 CDP fakes and never contacts reCAPTCHA.
+
+To exercise the full solve path against a page you own or are explicitly
+authorized to test, set the additional opt-in guard and run:
+
+```bash
+RECAPTCHA_SOLVER_LIVE_APPROVED=YES \
+RECAPTCHA_SOLVER_TARGET_URL=https://example.com \
+RECAPTCHA_SOLVER_CDP_PORT=9222 \
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
+```
+
+This command may click the checkbox and challenge tiles. It is deliberately
+excluded from CI and refuses to run without the explicit approval variable.
 
 ## Release safety
 

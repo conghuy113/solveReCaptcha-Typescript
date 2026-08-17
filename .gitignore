@@ -9,7 +9,6 @@ __pycache__/
 .Python
 build/
 artifacts/
-npm/platforms/*/bin/
 develop-eggs/
 dist/
 downloads/
@@ -29,7 +28,6 @@ MANIFEST
 
 *.manifest
 *.spec
-!packaging/worker.spec
 
 # Installer logs
 pip-log.txt
@@ -92,10 +90,4 @@ tmp/
 # Temporary downloads
 *.png
 
-src/recaptcha_solver/models/*.onnx
-
-yolo12x.pt
-yolo12x.onnx
-recaptcha_classification_57k.onnx
-src/vision_ai_recaptcha_solver/models/recaptcha_classification_57k.onnx
 modelOld.onnx

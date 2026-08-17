@@ -35,17 +35,12 @@
     "access": "public",
     "provenance": true
   },
-  "optionalDependencies": {
-    "@conghuy113/recaptcha-solver-win32-x64": "workspace:0.1.0",
-    "@conghuy113/recaptcha-solver-linux-x64": "workspace:0.1.0",
-    "@conghuy113/recaptcha-solver-darwin-x64": "workspace:0.1.0",
-    "@conghuy113/recaptcha-solver-darwin-arm64": "workspace:0.1.0"
-  },
   "scripts": {
     "build": "tsup src/index.ts src/postinstall.ts --format esm --dts --sourcemap --clean",
     "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit",
     "smoke:cdp": "tsx scripts/cdp-smoke.ts",
+    "smoke:solve": "tsx scripts/solve-smoke.ts",
     "postinstall": "node ./dist/postinstall.js",
     "prepack": "tsup src/index.ts src/postinstall.ts --format esm --dts --sourcemap --clean"
   },

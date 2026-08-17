@@ -1,4 +1,4 @@
-"""Fail CI when public package licensing or release routing regresses."""
+"""Fail CI when npm package licensing, contents, or release routing regresses."""
 
 # SPDX-License-Identifier: AGPL-3.0-only
 
@@ -8,19 +8,23 @@ import json
 from pathlib import Path
 from typing import Any
 
-import tomllib
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PUBLISHED_PACKAGES = (
-    PROJECT_ROOT / "npm" / "recaptcha-solver",
-    PROJECT_ROOT / "npm" / "platforms" / "win32-x64",
-    PROJECT_ROOT / "npm" / "platforms" / "linux-x64",
-    PROJECT_ROOT / "npm" / "platforms" / "darwin-x64",
-    PROJECT_ROOT / "npm" / "platforms" / "darwin-arm64",
-)
+PACKAGE_ROOT = PROJECT_ROOT / "npm" / "recaptcha-solver"
 PUBLIC_REPOSITORY = "git+https://github.com/conghuy113/solveReCaptchaByAIVision.git"
 MODEL_RELEASE_PREFIX = (
     "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/"
+)
+REMOVED_RUNTIME_PATHS = (
+    ".github/workflows/native-npm-build.yml",
+    ".github/workflows/publish.yml",
+    "npm/platforms",
+    "npm/recaptcha-solver/src/platform.ts",
+    "npm/recaptcha-solver/src/worker-client.ts",
+    "packaging/build_worker.py",
+    "packaging/verify_worker.py",
+    "packaging/worker.spec",
+    "pyproject.toml",
+    "src/vision_ai_recaptcha_solver",
 )
 
 
@@ -59,47 +63,41 @@ def check_root_licenses() -> None:
         require_file(relative_path)
 
 
-def check_python_metadata() -> None:
-    pyproject = tomllib.loads(require_file("pyproject.toml").read_text(encoding="utf-8"))
-    project = pyproject.get("project")
-    if not isinstance(project, dict) or project.get("license") != {"file": "LICENSE"}:
-        raise RuntimeError("pyproject.toml must package the root AGPL LICENSE file")
+def check_npm_package() -> None:
+    package = load_json(PACKAGE_ROOT / "package.json")
+    if package.get("license") != "AGPL-3.0-only":
+        raise RuntimeError("npm package is not AGPL-3.0-only")
 
+    publish_config = package.get("publishConfig")
+    if not isinstance(publish_config, dict):
+        raise RuntimeError("npm package has no publishConfig")
+    if publish_config.get("access") != "public" or publish_config.get("provenance") is not True:
+        raise RuntimeError("npm package must publish publicly with provenance")
 
-def check_npm_packages() -> None:
-    for package_root in PUBLISHED_PACKAGES:
-        manifest = load_json(package_root / "package.json")
-        if manifest.get("license") != "AGPL-3.0-only":
-            raise RuntimeError(f"npm package is not AGPL-3.0-only: {package_root}")
+    files = package.get("files")
+    if not isinstance(files, list):
+        raise RuntimeError("npm package has no explicit files allowlist")
+    for required_name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "model-manifest.json"):
+        if required_name not in files or not (PACKAGE_ROOT / required_name).is_file():
+            raise RuntimeError(f"npm package does not include {required_name}")
 
-        publish_config = manifest.get("publishConfig")
-        if not isinstance(publish_config, dict):
-            raise RuntimeError(f"npm package has no publishConfig: {package_root}")
-        if publish_config.get("access") != "public" or publish_config.get("provenance") is not True:
-            raise RuntimeError(f"npm package must publish publicly with provenance: {package_root}")
-
-        files = manifest.get("files")
-        if not isinstance(files, list):
-            raise RuntimeError(f"npm package has no explicit files allowlist: {package_root}")
-        for required_name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
-            if required_name not in files or not (package_root / required_name).is_file():
-                raise RuntimeError(
-                    f"npm package does not include {required_name}: {package_root}"
-                )
-
-    solver_root = PROJECT_ROOT / "npm" / "recaptcha-solver"
-    solver_package = load_json(solver_root / "package.json")
-    repository = solver_package.get("repository")
+    repository = package.get("repository")
     if not isinstance(repository, dict) or repository.get("url") != PUBLIC_REPOSITORY:
-        raise RuntimeError("Main npm package must point to the public source repository")
-    if "model-manifest.json" not in solver_package.get("files", []):
-        raise RuntimeError("Main npm package must publish model-manifest.json")
+        raise RuntimeError("npm package must point to the public source repository")
+    if "optionalDependencies" in package:
+        raise RuntimeError("TypeScript-only package must not declare platform workers")
 
-    model_manifest = load_json(solver_root / "model-manifest.json")
-    models = model_manifest.get("models")
+    entrypoint = require_file("npm/recaptcha-solver/src/index.ts").read_text(encoding="utf-8")
+    if entrypoint.count("export { solveReCaptcha }") != 1 or "WorkerClient" in entrypoint:
+        raise RuntimeError("Public entrypoint must export only the TypeScript solve path")
+
+
+def check_model_manifest() -> None:
+    manifest = load_json(PACKAGE_ROOT / "model-manifest.json")
+    models = manifest.get("models")
     if (
-        model_manifest.get("schemaVersion") != 1
-        or model_manifest.get("license") != "AGPL-3.0-only"
+        manifest.get("schemaVersion") != 1
+        or manifest.get("license") != "AGPL-3.0-only"
         or not isinstance(models, list)
         or {model.get("id") for model in models if isinstance(model, dict)}
         != {"classification", "detection"}
@@ -117,18 +115,26 @@ def check_npm_packages() -> None:
             raise RuntimeError("Model assets must pin a SHA-256 digest")
 
 
+def check_removed_runtime() -> None:
+    for relative_path in REMOVED_RUNTIME_PATHS:
+        if (PROJECT_ROOT / relative_path).exists():
+            raise RuntimeError(f"Removed Python/native runtime returned: {relative_path}")
+    workspace = require_file("npm/pnpm-workspace.yaml").read_text(encoding="utf-8")
+    if "platforms" in workspace:
+        raise RuntimeError("npm workspace must contain only the TypeScript package")
+
+
 def check_release_routing() -> None:
-    workflow = require_file(".github/workflows/publish.yml").read_text(encoding="utf-8")
-    if '"python-v*"' not in workflow:
-        raise RuntimeError("PyPI workflow must be restricted to python-v* tags")
-    if "release:" in workflow or "types: [published]" in workflow:
-        raise RuntimeError("PyPI workflow must not run for generic GitHub Releases")
+    workflow = require_file(".github/workflows/model-release.yml").read_text(encoding="utf-8")
+    if "workflow_dispatch:" not in workflow or "gh release create" not in workflow:
+        raise RuntimeError("Model release must remain an explicit immutable workflow")
 
 
 def main() -> int:
     check_root_licenses()
-    check_python_metadata()
-    check_npm_packages()
+    check_npm_package()
+    check_model_manifest()
+    check_removed_runtime()
     check_release_routing()
     print("Public-package compliance checks passed.")
     return 0

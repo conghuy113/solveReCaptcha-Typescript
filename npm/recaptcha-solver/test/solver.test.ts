@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { CdpFrame } from "../src/browser/cdp/index.js";
+import { CaptchaHandlers } from "../src/challenge/handlers.js";
 import type { ImageChallengeType } from "../src/challenge/handlers.js";
 import {
   SolverTimeoutError,
@@ -59,7 +60,7 @@ class FakeNavigation implements SolverNavigation {
   async targetKeyword(): Promise<string | undefined> { return this.keyword; }
   async challengeTitle(): Promise<string> { return this.title; }
   async imageUrls(): Promise<string[]> { return []; }
-  async clickTile(): Promise<boolean> { return true; }
+  async clickTile(_cell: number): Promise<boolean> { return true; }
 }
 
 class FakeHandlers implements HandlerSolver {
@@ -147,6 +148,79 @@ test("orchestrates an image handler and returns the verified token", async () =>
   assert.equal(output.attempts, 1);
   assert.equal(output.token, "verified-token");
   assert.deepEqual(fixture.handlers.calls, [{ type: "selection_3x3", keyword: "buses" }]);
+  assert.equal(fixture.chrome.closed, true);
+});
+
+test("integrates orchestration, target mapping, ranking, and tile clicks without a worker", async () => {
+  const browser = new FakeBrowser();
+  const navigation = new FakeNavigation();
+  const clock = new FakeClock();
+  const clicked: number[] = [];
+  navigation.imageUrls = async () => [
+    "https://www.google.com/recaptcha/api2/payload?id=selection-grid",
+  ];
+  navigation.clickTile = async (cell) => {
+    clicked.push(cell);
+    return true;
+  };
+  navigation.clickVerifyButton = async () => {
+    browser.token = "integrated-token";
+    return true;
+  };
+  const chrome = new FakeChrome(browser);
+  const output = await solveReCaptchaWithDependencies(
+    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: false },
+    {
+      connectChrome: async () => chrome,
+      loadRuntime: async () => ({
+        classification: {
+          classifyGrid: async () => [
+            { cell: 1, confidence: 0.1 },
+            { cell: 2, confidence: 0.95 },
+            { cell: 3, confidence: 0.8 },
+            { cell: 4, confidence: 0.75 },
+          ],
+        },
+        detection: { detectGridCells: async () => [] },
+      }),
+      createNavigation: () => navigation,
+      createHandlers: (activeNavigation, classification, detection) => new CaptchaHandlers(
+        activeNavigation,
+        classification,
+        detection,
+        {
+          clock,
+          defaultTimeoutMs: 1_000,
+          downloadImage: async () => Buffer.from("fixture"),
+        },
+      ),
+      clock,
+      defaultTimeoutMs: 1_000,
+      maxAttempts: 1,
+    },
+  );
+  assert.deepEqual(clicked, [2, 3, 4]);
+  assert.equal(output.token, "integrated-token");
+  assert.equal(output.captchaType, "selection_3x3");
+  assert.equal(output.completionReason, "token_found");
+  assert.equal(chrome.closed, true);
+});
+
+test("reports URL navigation as a successful completion without requiring a token", async () => {
+  const browser = new FakeBrowser();
+  const navigation = new FakeNavigation();
+  const fixture = dependencies({ browser, navigation });
+  navigation.clickVerifyButton = async () => {
+    browser.currentUrl = "https://example.com/complete";
+    return true;
+  };
+  const output = await solveReCaptchaWithDependencies(
+    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: false },
+    fixture.dependencies,
+  );
+  assert.equal(output.completionReason, "url_changed");
+  assert.equal(output.token, null);
+  assert.equal(output.currentUrl, "https://example.com/complete");
   assert.equal(fixture.chrome.closed, true);
 });
 

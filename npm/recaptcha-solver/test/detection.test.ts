@@ -98,7 +98,7 @@ test("NMS keeps stable confidence order", () => {
 });
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const modelPath = join(projectRoot, "yolo12x.onnx");
+const modelPath = join(projectRoot, "build", "model-release", "yolo12x.onnx");
 
 test(
   "loads and executes the real detection model when the local asset is available",

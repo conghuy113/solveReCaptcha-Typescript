@@ -1,7 +1,7 @@
-"""Prepare immutable model assets for a native worker build.
+"""Prepare immutable model assets for the public GitHub model release.
 
-Downloads happen only in controlled build/release workflows. The frozen worker
-never calls this module and requires the verified model cache supplied by npm.
+Downloads and ONNX export happen only in the controlled model-release workflow.
+The npm runtime downloads only the immutable, hash-pinned release assets.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class ModelAsset:
 
 @dataclass(frozen=True)
 class GeneratedAsset:
-    """A runtime model derived from a pinned source model during native build."""
+    """A release model derived from a pinned source checkpoint."""
 
     name: str
     target: Path
@@ -126,7 +126,7 @@ def download_asset(asset: ModelAsset) -> None:
     temporary_path = Path(temporary_name)
     request = urllib.request.Request(
         asset.url,
-        headers={"User-Agent": "@conghuy113/recaptcha-solver native builder"},
+        headers={"User-Agent": "@conghuy113/recaptcha-solver model release builder"},
     )
     try:
         digest = hashlib.sha256()

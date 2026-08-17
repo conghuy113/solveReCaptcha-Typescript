@@ -1,9 +1,5 @@
 node_modules/
 **/dist/
-**/bin/recaptcha-solver-worker
-**/bin/recaptcha-solver-worker.exe
 **/models/*.onnx
 **/models/*.pt
-platforms/*/build-info.json
-platforms/*/checksums.json
 *.tgz
