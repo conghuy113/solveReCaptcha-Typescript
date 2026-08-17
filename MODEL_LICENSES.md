@@ -28,8 +28,8 @@ resolve the separate training-image provenance gap recorded in
 
 - Source checkpoint: <https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo12x.pt>
 - Export recipe: [`packaging/prepare_models.py`](packaging/prepare_models.py)
-- Local size: `236935712` bytes
-- SHA-256: `dcc6c1dba37f52ea8c265e059f8bafa42caf237a1e4c20fbb49a93560214d707`
+- Release size: `236935676` bytes after deterministic metadata normalization
+- SHA-256: `3ca6164a7bd3d472447604c79e686f053e90c23218f68848ea912dab62f8aa43`
 - ONNX producer: `pytorch`
 - Embedded description: `Ultralytics YOLOv12x model`
 - Embedded Ultralytics version: `8.3.241`

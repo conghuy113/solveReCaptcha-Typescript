@@ -98,9 +98,14 @@ def stage(output: Path, expected_tag: str) -> None:
             raise SystemExit(f"Prepared model is missing: {file_name}")
         expected_size = model.get("size")
         expected_hash = model.get("sha256")
+        actual_size = source.stat().st_size
         actual_hash = sha256(source)
-        if source.stat().st_size != expected_size or actual_hash != expected_hash:
-            raise SystemExit(f"Prepared model does not match the immutable manifest: {file_name}")
+        if actual_size != expected_size or actual_hash != expected_hash:
+            raise SystemExit(
+                "Prepared model does not match the immutable manifest: "
+                f"{file_name}; size={actual_size}, expected_size={expected_size}, "
+                f"sha256={actual_hash}, expected_sha256={expected_hash}"
+            )
         shutil.copy2(source, output / file_name)
         checksum_lines.append(f"{actual_hash}  {file_name}")
 
