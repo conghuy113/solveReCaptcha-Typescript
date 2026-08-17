@@ -100,4 +100,4 @@ jobs:
         run: npm install --global npm@11.18.0
 
       - name: Publish with npm Trusted Publishing and provenance
-        run: npm publish artifacts/recaptcha-solver.tgz --access public --provenance
+        run: npm publish ./artifacts/recaptcha-solver.tgz --access public --provenance

@@ -150,7 +150,7 @@ def check_release_routing() -> None:
         "check_release_candidate.mjs",
         "generate_release_evidence.mjs",
         "check_registry_version.mjs",
-        "npm publish artifacts/recaptcha-solver.tgz --access public --provenance",
+        "npm publish ./artifacts/recaptcha-solver.tgz --access public --provenance",
     )
     for fragment in required_fragments:
         if fragment not in npm_workflow:
