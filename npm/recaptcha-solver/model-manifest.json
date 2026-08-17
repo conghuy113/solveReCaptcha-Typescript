@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "modelSetVersion": "1.0.0",
+  "releaseTag": "models-v1.0.0",
+  "license": "AGPL-3.0-only",
+  "models": [
+    {
+      "id": "classification",
+      "fileName": "recaptcha_classification_57k.onnx",
+      "url": "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/models-v1.0.0/recaptcha_classification_57k.onnx",
+      "size": 113597179,
+      "sha256": "4092e8917ee8c2963895d66ba10a97d6ef975c468a95858a8a7bd9e70681b65d",
+      "task": "classify",
+      "inputName": "images",
+      "outputName": "output0",
+      "inputShape": ["batch", 3, "height", "width"],
+      "outputShape": ["batch", 14]
+    },
+    {
+      "id": "detection",
+      "fileName": "yolo12x.onnx",
+      "url": "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/models-v1.0.0/yolo12x.onnx",
+      "size": 236935712,
+      "sha256": "dcc6c1dba37f52ea8c265e059f8bafa42caf237a1e4c20fbb49a93560214d707",
+      "task": "detect",
+      "inputName": "images",
+      "outputName": "output0",
+      "inputShape": [1, 3, 640, 640],
+      "outputShape": [1, 84, 8400]
+    }
+  ]
+}

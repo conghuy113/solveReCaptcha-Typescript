@@ -1,0 +1,72 @@
+name: Publish immutable model release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Must exactly match model-manifest.json
+        required: true
+        default: models-v1.0.0
+      provenance_attestation:
+        description: Type RELEASE_APPROVED after completing DATASET_PROVENANCE.md
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify and publish models
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    environment: model-release
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce explicit provenance attestation
+        if: inputs.provenance_attestation != 'RELEASE_APPROVED'
+        run: |
+          echo "The provenance attestation is not RELEASE_APPROVED." >&2
+          exit 1
+
+      - name: Refuse replacement of an existing release
+        shell: bash
+        run: |
+          if gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1; then
+            echo "Release ${{ inputs.release_tag }} already exists and will not be mutated." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned model export dependencies
+        run: |
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r packaging/requirements-build.txt
+
+      - name: Prepare and verify pinned models
+        env:
+          YOLO_CONFIG_DIR: ${{ runner.temp }}/ultralytics
+        run: python packaging/prepare_models.py
+
+      - name: Stage release with license and provenance records
+        run: >-
+          python packaging/stage_model_release.py
+          --output artifacts/model-release
+          --tag "${{ inputs.release_tag }}"
+          --require-provenance-review
+
+      - name: Publish release once
+        shell: bash
+        run: |
+          gh release create "${{ inputs.release_tag }}" artifacts/model-release/* \
+            --title "Model set ${{ inputs.release_tag }}" \
+            --notes "AGPL-3.0 model assets pinned by model-manifest.json. See the attached model cards, provenance record, and SHA256SUMS."

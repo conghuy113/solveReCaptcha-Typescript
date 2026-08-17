@@ -1,0 +1,14 @@
+{
+  "name": "recaptcha-solver-npm-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "workspaces": [
+    "recaptcha-solver",
+    "platforms/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @conghuy113/recaptcha-solver",
+    "test": "npm run test --workspace @conghuy113/recaptcha-solver",
+    "typecheck": "npm run typecheck --workspace @conghuy113/recaptcha-solver"
+  }
+}

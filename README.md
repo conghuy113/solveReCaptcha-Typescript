@@ -1,0 +1,233 @@
+# @conghuy113/recaptcha-solver
+
+[![CI](https://github.com/conghuy113/solveReCaptchaByAIVision/actions/workflows/ci.yml/badge.svg)](https://github.com/conghuy113/solveReCaptchaByAIVision/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
+An npm-first TypeScript library for solving reCAPTCHA challenges in an
+already-open Chrome browser. The package exports one runtime function:
+`solveReCaptcha()`.
+
+Inference runs locally with ONNX models. The library does not send challenge
+images to a hosted inference service, does not launch Chrome, and does not close
+the user's browser.
+
+> **Development status:** the TypeScript migration is in progress. The npm
+> package and its model Release must pass the documented release gates before
+> they are published. Installation commands below describe the package's public
+> contract once that release is available.
+
+## Features
+
+- TypeScript types and an ESM entry point.
+- A single, promise-based `solveReCaptcha()` API.
+- Connects to an existing Chrome instance through a loopback remote-debugging
+  port.
+- Local ONNX inference; no hosted inference API.
+- Classification support for 3x3 challenges and detection support for 4x4
+  challenges.
+- Pinned model versions with byte-size and SHA-256 verification.
+- Atomic model downloads, retries, cache locking, and corrupt-file cleanup.
+- Platform-specific worker packages selected automatically by npm.
+
+## Requirements
+
+- Node.js 20.9 or newer.
+- A supported operating system and CPU:
+  - Windows x64
+  - Linux x64
+  - macOS x64
+  - macOS arm64
+- Google Chrome or another compatible Chromium browser started with remote
+  debugging enabled on a loopback port.
+- Permission to automate and test the target website.
+
+## Installation
+
+```bash
+npm install @conghuy113/recaptcha-solver
+```
+
+The main package declares platform-specific workers as optional dependencies.
+Do not install with optional dependencies disabled.
+
+## Start Chrome for remote debugging
+
+Close Chrome instances that already use the selected profile, then start a
+dedicated automation profile. For example:
+
+```bash
+chrome --remote-debugging-port=9222 --user-data-dir=/tmp/recaptcha-solver-profile
+```
+
+Use the Chrome executable path and profile directory appropriate for your
+operating system. Keep the debugging endpoint bound to the local machine; do
+not expose it to an untrusted network.
+
+Open the target page in that Chrome instance before calling the library.
+
+## Quick start
+
+```ts
+import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
+
+const result = await solveReCaptcha({
+  targetUrl: "https://example.com/signup",
+  port: 9222,
+  clickCheckbox: true,
+});
+
+console.log({
+  token: result.token,
+  completionReason: result.completionReason,
+  attempts: result.attempts,
+  timeTaken: result.timeTaken,
+  currentUrl: result.currentUrl,
+});
+```
+
+### Options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `targetUrl` | `string` | Full URL or stable URL fragment used to locate the already-open tab. |
+| `port` | `number` | Chrome remote-debugging port on `127.0.0.1`. Must be between 1 and 65535. |
+| `clickCheckbox` | `boolean` | Whether to click the checkbox before handling an image challenge. |
+
+### Result
+
+`solveReCaptcha()` resolves to a typed object containing:
+
+- `token`: extracted response token, or `null` when completion does not require
+  one.
+- `completionReason`: `token_found`, `url_changed`, or `checkbox_solved`.
+- `captchaType`: challenge type reported by the solver.
+- `attempts` and `timeTaken`: solve metrics.
+- `cookies`: cookies from the connected browser context.
+- `currentUrl`: final page URL.
+
+The promise rejects when input validation, model preparation, browser
+connection, worker startup, or challenge solving fails.
+
+## Model delivery and cache
+
+The package uses two ONNX assets:
+
+- `recaptcha_classification_57k.onnx` for tile classification.
+- `yolo12x.onnx` for object detection.
+
+During `npm install`, the package downloads the immutable model set declared in
+[`model-manifest.json`](npm/recaptcha-solver/model-manifest.json). Downloads are
+restricted to trusted GitHub Release hosts. A model is moved into the cache only
+after both its exact byte size and SHA-256 digest match the manifest.
+
+The same verification runs before `solveReCaptcha()` starts, so installs that
+skip lifecycle scripts remain recoverable on first use.
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `RECAPTCHA_SOLVER_CACHE_DIR` | Overrides the package cache root. |
+| `RECAPTCHA_SOLVER_MODEL_DIR` | Uses a directory that already contains both verified model files. |
+| `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds. |
+| `RECAPTCHA_SOLVER_BINARY` | Uses an explicit worker binary during repository development and testing. |
+
+For offline deployment, populate `RECAPTCHA_SOLVER_MODEL_DIR` from a trusted
+artifact source. Files are still checked against the package manifest before
+use.
+
+## Architecture
+
+The consumer-facing path is:
+
+1. The application calls the TypeScript `solveReCaptcha()` function.
+2. The package verifies the two cached model files.
+3. The TypeScript client resolves and validates the matching platform worker.
+4. The worker attaches to the existing Chrome session through its debugging
+   port.
+5. Challenge images are processed locally and the result is returned through a
+   versioned JSON-lines protocol.
+
+The platform worker is transitional. Classification, detection, and direct CDP
+building blocks now have TypeScript implementations, but `solveReCaptcha()`
+continues to use the worker until the orchestration port is complete. These
+internal modules are deliberately not exported from the package entrypoint.
+
+## Development
+
+Install the npm workspace without running the model-download lifecycle script:
+
+```bash
+pnpm --dir npm install --frozen-lockfile --ignore-scripts
+```
+
+Run the TypeScript checks:
+
+```bash
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run typecheck
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run test
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run build
+```
+
+The repository also retains the transitional worker implementation and its
+regression suite. Contributors changing that layer should run:
+
+```bash
+python -m pytest -q
+python packaging/check_compliance.py
+```
+
+### Repository layout
+
+- `npm/recaptcha-solver/` — public TypeScript package.
+- `npm/platforms/` — platform-specific worker packages.
+- `npm/recaptcha-solver/src/models/` — manifest validation, download, cache,
+  and integrity checks.
+- `npm/recaptcha-solver/src/inference/` — TypeScript ONNX inference modules.
+- `npm/recaptcha-solver/src/browser/cdp/` — loopback-only TypeScript CDP
+  transport and browser adapters.
+- `npm/recaptcha-solver/src/challenge/` — TypeScript iframe navigation,
+  challenge DOM operations, guarded image download, and in-memory grid image
+  composition.
+- `packaging/` — worker builds, package smoke tests, compliance checks, and
+  model-release tooling.
+- `tests/` — transitional worker regression tests.
+
+To smoke-test the TypeScript CDP adapter against an authorized local page,
+start Chrome with remote debugging, open the page, and run:
+
+```bash
+CDP_TARGET_URL=https://example.com CDP_PORT=9222 \
+  pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:cdp
+```
+
+This live smoke test is optional and is not run by CI. CI uses deterministic
+CDP fakes and never contacts reCAPTCHA.
+
+## Release safety
+
+- Source code and npm packages are licensed under AGPL-3.0-only.
+- Model files are excluded from Git and are distributed as hash-pinned GitHub
+  Release assets.
+- The model publication workflow refuses to replace an existing release.
+- Model publication remains blocked until the training-data provenance review
+  is completed.
+- npm publication should use registry provenance and an explicit files
+  allowlist.
+
+See [model licensing](MODEL_LICENSES.md),
+[dataset provenance](DATASET_PROVENANCE.md), and
+[third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Responsible use
+
+Use this library only on systems you own or are explicitly authorized to test.
+Users are responsible for complying with applicable law, website terms, and
+service policies.
+
+## License
+
+Copyright holders license this project under the
+[GNU Affero General Public License v3.0](LICENSE). Third-party components and
+model assets retain the notices documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
