@@ -54,7 +54,7 @@ jobs:
 
       - name: Prepare and verify pinned models
         env:
-          YOLO_CONFIG_DIR: ${{ runner.temp }}/ultralytics
+          YOLO_CONFIG_DIR: ${{ runner.temp }}
         run: python packaging/prepare_models.py
 
       - name: Stage release with license and provenance records
