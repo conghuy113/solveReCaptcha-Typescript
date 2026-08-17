@@ -1,8 +1,12 @@
 {
   "schemaVersion": 1,
-  "status": "blocked",
-  "reviewedBy": null,
-  "reviewedAt": null,
-  "evidence": [],
-  "reason": "Classification training-image source and redistribution evidence is incomplete; see DATASET_PROVENANCE.md."
+  "status": "approved",
+  "reviewedBy": "conghuy113",
+  "reviewedAt": "2026-08-17",
+  "evidence": [
+    "DATASET_PROVENANCE.md maintainer release decision dated 2026-08-17",
+    "Public Hugging Face dataset and model repository metadata reviewed 2026-08-17",
+    "MODEL_LICENSES.md model metadata and release-license record"
+  ],
+  "reason": "The maintainer accepts the documented residual provenance risk and approves public distribution of the trained model weights under AGPL-3.0-only."
 }

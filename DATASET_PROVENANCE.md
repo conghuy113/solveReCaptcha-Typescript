@@ -3,9 +3,9 @@
 This document records the current state of the training-data review. It is not
 a representation that every underlying image is cleared for redistribution.
 
-- Review status: **BLOCKED**
+- Review status: **APPROVED FOR MODEL-WEIGHT RELEASE**
 - Evidence review updated: 2026-08-17
-- Release decision owner: repository maintainer
+- Release decision owner: conghuy113
 
 ## Classification model
 
@@ -26,17 +26,18 @@ declares AGPL-3.0. The exact checkpoint URL, digest, export recipe, model card,
 and license notice are staged by the model-release workflow. This does not
 resolve the separate classification-dataset gap above.
 
-## Release gate
+## Release decision
 
-Before a public model release, maintainers must either:
+The repository maintainer reviewed the available dataset card, model card,
+repository metadata, model metadata, and declared licenses on 2026-08-17. The
+image-level provenance limitations described above remain unresolved. The
+maintainer nevertheless accepts that residual risk and approves distribution
+of the trained model weights under AGPL-3.0-only.
 
-- document an authorized, redistributable source for all required training
-  data; or
-- document why the model weights may be distributed without redistributing the
-  underlying dataset, after an appropriate license review.
+The model release does not redistribute the training dataset. This approval is
+a release decision based on the public evidence currently available; it is not
+a representation that every underlying training image has been individually
+cleared for redistribution.
 
-The evidence and conclusion must be committed here with the reviewer and review
-date. Merely changing the status or typing the workflow attestation is not a
-substitute for that record.
-
-Until that review is complete, model assets remain blocked from public release.
+Any later evidence that materially changes this assessment must trigger a new
+review before another model-set version is published.
