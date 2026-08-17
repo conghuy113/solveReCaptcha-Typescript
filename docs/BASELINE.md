@@ -1,7 +1,8 @@
-# PR-01 baseline
+# PR-01 baseline (historical)
 
-This document records the verified local baseline before the Python worker is
-ported to a single TypeScript npm package.
+This document records the verified local baseline before the Python worker was
+ported to a single TypeScript npm package. It is retained as migration history;
+it does not describe the current runtime.
 
 ## Versions and scope
 
@@ -31,9 +32,11 @@ Do not initialize a history-less replacement repository unless preserving the
 upstream history is intentionally impossible. The original MIT copyright and
 permission notices must remain available in all substantial copies.
 
-## Release blocks after PR-01
+## Resolution
 
-- Configure the exact public repository URL in npm and Python metadata.
-- Complete the training-dataset provenance review.
-- Create immutable model release assets and model cards.
-- Port the Python runtime to TypeScript before removing the legacy baseline.
+- The repository URL and npm metadata now target the public repository.
+- The Python/native worker has been replaced by the TypeScript runtime and
+  removed from the active codebase.
+- Immutable, hash-pinned model release tooling is in place.
+- Training-dataset provenance review and the final model/npm publication gates
+  remain release prerequisites.

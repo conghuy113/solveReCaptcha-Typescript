@@ -14,7 +14,7 @@ The preserved notice is in
 
 ## RecaptchaDomainReplicator
 
-The legacy Python implementation depends on
+The retired Python implementation was derived in part from
 [`DannyLuna17/RecaptchaDomainReplicator`](https://github.com/DannyLuna17/RecaptchaDomainReplicator),
 copyright 2025 Danny Luna and distributed under the MIT License. The preserved
 notice is in
@@ -35,6 +35,7 @@ The TypeScript runtime directly depends on
 These dependencies retain their own copyright and license notices inside their
 distributions.
 
-Other Python and npm dependencies retain their own copyright and license terms.
-A generated dependency-license inventory and SBOM are release gates and must be
-reviewed before publishing an npm package or native artifact.
+Maintainer-only model-release tools use their declared Python dependencies;
+they are not part of the installed npm runtime. All dependencies retain their
+own copyright and license terms. A generated dependency-license inventory and
+SBOM are release gates and must be reviewed before publishing the npm package.

@@ -8,14 +8,6 @@ importers:
 
   .: {}
 
-  platforms/darwin-arm64: {}
-
-  platforms/darwin-x64: {}
-
-  platforms/linux-x64: {}
-
-  platforms/win32-x64: {}
-
   recaptcha-solver:
     dependencies:
       onnxruntime-node:
@@ -43,19 +35,6 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
-    optionalDependencies:
-      '@conghuy113/recaptcha-solver-darwin-arm64':
-        specifier: workspace:0.1.0
-        version: link:../platforms/darwin-arm64
-      '@conghuy113/recaptcha-solver-darwin-x64':
-        specifier: workspace:0.1.0
-        version: link:../platforms/darwin-x64
-      '@conghuy113/recaptcha-solver-linux-x64':
-        specifier: workspace:0.1.0
-        version: link:../platforms/linux-x64
-      '@conghuy113/recaptcha-solver-win32-x64':
-        specifier: workspace:0.1.0
-        version: link:../platforms/win32-x64
 
 packages:
 

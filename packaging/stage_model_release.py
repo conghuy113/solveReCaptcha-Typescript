@@ -16,12 +16,11 @@ PACKAGE_MANIFEST = PROJECT_ROOT / "npm" / "recaptcha-solver" / "model-manifest.j
 SOURCE_PATHS = {
     "recaptcha_classification_57k.onnx": (
         PROJECT_ROOT
-        / "src"
-        / "vision_ai_recaptcha_solver"
-        / "models"
+        / "build"
+        / "model-release"
         / "recaptcha_classification_57k.onnx"
     ),
-    "yolo12x.onnx": PROJECT_ROOT / "yolo12x.onnx",
+    "yolo12x.onnx": PROJECT_ROOT / "build" / "model-release" / "yolo12x.onnx",
 }
 NOTICE_PATHS = (
     PROJECT_ROOT / "LICENSE",

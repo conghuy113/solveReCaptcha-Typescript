@@ -1,7 +1,7 @@
-/** Install packed npm tarballs and execute the public API without system Python. */
+/** Install the packed npm library and verify its public TypeScript-only API. */
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -32,11 +32,7 @@ function packageName(tarball) {
 function run(command, args, options = {}) {
   let executable = command;
   let executableArguments = args;
-  const shouldUseCommandInterpreter =
-    process.platform === "win32" &&
-    options.shell !== false &&
-    (!command.includes(".") || /\.(?:cmd|bat)$/iu.test(command));
-  if (shouldUseCommandInterpreter) {
+  if (process.platform === "win32" && options.shell !== false) {
     executable = process.env.ComSpec || "cmd.exe";
     executableArguments = ["/d", "/s", "/c", "call", command, ...args];
   }
@@ -62,79 +58,61 @@ function withoutPythonPath(environment) {
   return { ...environment, PATH: pathEntries.join(delimiter) };
 }
 
-const [coreArgument, platformArgument] = process.argv.slice(2);
-if (!coreArgument || !platformArgument) {
-  fail("Usage: node smoke_npm_install.mjs <core.tgz> <platform.tgz>");
-}
+const [coreArgument] = process.argv.slice(2);
+if (!coreArgument) fail("Usage: node smoke_npm_install.mjs <core.tgz>");
 const coreTarball = resolve(coreArgument);
-const platformTarball = resolve(platformArgument);
 const tempRoot = mkdtempSync(join(tmpdir(), "recaptcha-npm-smoke-"));
 const npmCommand = process.env.RECAPTCHA_SOLVER_NPM_COMMAND || "npm";
-const installArguments = ["install", "--offline", "--ignore-scripts"];
-if (!npmCommand.toLowerCase().includes("pnpm")) {
-  installArguments.push("--no-audit", "--no-fund");
-}
 
 try {
   const coreName = packageName(coreTarball);
-  const platformName = packageName(platformTarball);
   writeFileSync(
     join(tempRoot, "package.json"),
-    JSON.stringify(
-      {
-        name: "recaptcha-solver-offline-smoke",
-        private: true,
-        type: "module",
-        dependencies: {
-          [coreName]: `file:${coreTarball}`,
-          [platformName]: `file:${platformTarball}`,
-        },
-      },
-      null,
-      2,
-    ),
+    JSON.stringify({
+      name: "recaptcha-solver-install-smoke",
+      private: true,
+      type: "module",
+      dependencies: { [coreName]: `file:${coreTarball}` },
+    }, null, 2),
   );
-  run(npmCommand, installArguments, {
-    cwd: tempRoot,
-  });
+  run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: tempRoot });
 
   const consumerPath = join(tempRoot, "consumer.mjs");
-  writeFileSync(
-    consumerPath,
-    `
-      import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
-
-      try {
-        await solveReCaptcha({
-          targetUrl: "https://phase3.invalid/",
-          port: 65534,
-          clickCheckbox: false,
-        });
-        throw new Error("Expected the browser connection to fail during smoke testing.");
-      } catch (error) {
-        if (error?.code !== "BROWSER_CONNECTION_FAILED") throw error;
-        console.log("Public API started the frozen worker and warmed cached models successfully.");
-      }
-    `,
-  );
+  writeFileSync(consumerPath, `
+    import * as solver from "@conghuy113/recaptcha-solver";
+    if (JSON.stringify(Object.keys(solver)) !== JSON.stringify(["solveReCaptcha"])) {
+      throw new Error("The package exports an unexpected runtime API.");
+    }
+    try {
+      await solver.solveReCaptcha({ targetUrl: "", port: 0, clickCheckbox: false });
+      throw new Error("Expected public option validation to reject.");
+    } catch (error) {
+      if (!(error instanceof TypeError) || !String(error.message).includes("targetUrl")) throw error;
+    }
+    console.log("Packed TypeScript public API loaded and validated without Python.");
+  `);
 
   const smokeEnvironment = withoutPythonPath(process.env);
-  smokeEnvironment.VISION_AI_RECAPTCHA_CACHE_DIR = join(tempRoot, "worker-cache");
+  smokeEnvironment.RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD = "1";
   const result = run(process.execPath, [consumerPath], {
     cwd: tempRoot,
     env: smokeEnvironment,
     shell: false,
-    timeout: 900_000,
+    timeout: 120_000,
   });
   process.stdout.write(result.stdout);
 
-  const installedCore = JSON.parse(
-    readFileSync(join(tempRoot, "node_modules", "@conghuy113", "recaptcha-solver", "package.json")),
-  );
-  if (installedCore.name !== "@conghuy113/recaptcha-solver") {
-    fail("The installed core package has unexpected metadata.");
+  const installedRoot = join(tempRoot, "node_modules", "@conghuy113", "recaptcha-solver");
+  const installedManifest = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
+  if (installedManifest.optionalDependencies) fail("Packed library still declares platform workers.");
+  const bundle = readdirSync(join(installedRoot, "dist"))
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => readFileSync(join(installedRoot, "dist", file), "utf8"))
+    .join("\n");
+  for (const forbidden of ["WorkerClient", "recaptcha-solver-worker", "resolveWorkerBinary"]) {
+    if (bundle.includes(forbidden)) fail(`Packed bundle contains removed runtime: ${forbidden}`);
   }
-  console.log(`Offline npm smoke test passed for ${platformName}.`);
+  console.log(`npm install smoke test passed for ${coreName}.`);
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

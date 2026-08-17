@@ -1,9 +1,8 @@
 # npm TypeScript workspace
 
-This workspace contains `@conghuy113/recaptcha-solver`, the AGPL-3.0 npm
-library, plus transitional platform-worker packages. Consumers install only
-the main package. Its entrypoint exports `solveReCaptcha()` and the associated
-TypeScript types; inference and browser modules remain internal.
+This workspace contains the AGPL-3.0 TypeScript library
+`@conghuy113/recaptcha-solver`. Its entrypoint exports `solveReCaptcha()` and
+the associated TypeScript types; inference and browser modules remain internal.
 
 ## Current implementation
 
@@ -23,8 +22,8 @@ TypeScript types; inference and browser modules remain internal.
 - TypeScript solve path: `solveReCaptcha()` connects the CDP, model, navigation,
   handler, verification, token, cookie, and cleanup stages directly.
 
-Platform-worker packages remain only as transitional workspace artifacts until
-end-to-end parity is verified and the cleanup phase removes them.
+The former Python/native worker and per-platform packages have been removed.
+Consumers receive one TypeScript package with local ONNX inference.
 
 ## Commands
 
@@ -45,6 +44,16 @@ CDP_TARGET_URL=https://example.com CDP_PORT=9222 \
 The page must already be open in an authorized Chrome instance started with
 remote debugging. The smoke test only attaches and reads the selected tab; it
 does not close Chrome.
+
+The full solve smoke test is separately guarded because it can interact with a
+challenge:
+
+```bash
+RECAPTCHA_SOLVER_LIVE_APPROVED=YES \
+RECAPTCHA_SOLVER_TARGET_URL=https://example.com \
+RECAPTCHA_SOLVER_CDP_PORT=9222 \
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
+```
 
 ## Migration records
 
