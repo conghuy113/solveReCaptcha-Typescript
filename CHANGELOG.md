@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## 0.1.0 — pending publication
+## 0.1.0 — 2026-08-17
 
 - Introduced the single-function TypeScript API `solveReCaptcha()`.
 - Added native TypeScript CDP, challenge handling, and local ONNX inference.
