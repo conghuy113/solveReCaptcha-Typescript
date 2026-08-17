@@ -8,6 +8,7 @@ published.
 ## `recaptcha_classification_57k.onnx`
 
 - Source: <https://huggingface.co/DannyLuna/recaptcha-classification-57k>
+- Source repository label: MIT (reviewed 2026-08-17)
 - Local size: `113597179` bytes
 - SHA-256: `4092e8917ee8c2963895d66ba10a97d6ef975c468a95858a8a7bd9e70681b65d`
 - ONNX producer: `pytorch`
@@ -16,6 +17,12 @@ published.
 - Embedded license: `AGPL-3.0 License (https://ultralytics.com/license)`
 - Runtime input: dynamic batch, `3 x height x width`
 - Runtime output: 14-class probability vector
+
+The source repository's MIT label and the exported ONNX file's embedded
+AGPL-3.0 metadata are not the same statement. The public model release uses the
+more restrictive AGPL-3.0-only terms and preserves both facts; this does not
+resolve the separate training-image provenance gap recorded in
+`DATASET_PROVENANCE.md`.
 
 ## `yolo12x.onnx`
 

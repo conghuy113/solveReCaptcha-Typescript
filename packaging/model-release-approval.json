@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "status": "blocked",
+  "reviewedBy": null,
+  "reviewedAt": null,
+  "evidence": [],
+  "reason": "Classification training-image source and redistribution evidence is incomplete; see DATASET_PROVENANCE.md."
+}

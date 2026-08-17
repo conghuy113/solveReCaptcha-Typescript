@@ -33,3 +33,6 @@ maintained in the public source repository's `MODEL_LICENSES.md`.
 This package directly depends on `onnxruntime-node` and `ws` under the MIT
 License, and `sharp` under the Apache License 2.0. Their copyright and license
 notices are preserved in the dependency distributions installed by npm.
+Sharp's platform packages also deliver libvips components under
+LGPL-3.0-or-later. The exact packed-package dependency inventory and CycloneDX
+SBOM are generated and reviewed by the public release workflow.

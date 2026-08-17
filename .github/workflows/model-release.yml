@@ -27,7 +27,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Enforce explicit provenance attestation
         if: inputs.provenance_attestation != 'RELEASE_APPROVED'
@@ -43,13 +43,13 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install pinned model export dependencies
         run: |
-          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -r packaging/requirements-build.txt
 
       - name: Prepare and verify pinned models

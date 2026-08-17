@@ -13,6 +13,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_MANIFEST = PROJECT_ROOT / "npm" / "recaptcha-solver" / "model-manifest.json"
+APPROVAL_PATH = PROJECT_ROOT / "packaging" / "model-release-approval.json"
 SOURCE_PATHS = {
     "recaptcha_classification_57k.onnx": (
         PROJECT_ROOT
@@ -26,6 +27,7 @@ NOTICE_PATHS = (
     PROJECT_ROOT / "LICENSE",
     PROJECT_ROOT / "MODEL_LICENSES.md",
     PROJECT_ROOT / "DATASET_PROVENANCE.md",
+    APPROVAL_PATH,
     PROJECT_ROOT / "docs" / "model-cards" / "classification.md",
     PROJECT_ROOT / "docs" / "model-cards" / "detection.md",
     PACKAGE_MANIFEST,
@@ -49,6 +51,23 @@ def load_manifest() -> dict[str, Any]:
 
 def require_provenance_gate() -> None:
     provenance = (PROJECT_ROOT / "DATASET_PROVENANCE.md").read_text(encoding="utf-8")
+    approval: Any = json.loads(APPROVAL_PATH.read_text(encoding="utf-8"))
+    if not isinstance(approval, dict) or approval.get("schemaVersion") != 1:
+        raise SystemExit("Model release approval record is invalid")
+    evidence = approval.get("evidence")
+    if (
+        approval.get("status") != "approved"
+        or not isinstance(approval.get("reviewedBy"), str)
+        or not approval["reviewedBy"].strip()
+        or not isinstance(approval.get("reviewedAt"), str)
+        or not approval["reviewedAt"].strip()
+        or not isinstance(evidence, list)
+        or not evidence
+        or not all(isinstance(item, str) and item.strip() for item in evidence)
+    ):
+        raise SystemExit(
+            "Public model release is blocked by packaging/model-release-approval.json"
+        )
     if "remain blocked from public release" in provenance:
         raise SystemExit(
             "Public model release is blocked by DATASET_PROVENANCE.md; complete the review first"

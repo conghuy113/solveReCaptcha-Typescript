@@ -1,0 +1,103 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish npm package
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: npm-publish
+    env:
+      RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.34.5"
+          run_install: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate immutable release candidate
+        run: node packaging/check_release_candidate.mjs "${{ github.event.release.tag_name }}"
+
+      - name: Install locked dependencies without lifecycle downloads
+        run: pnpm --dir npm install --frozen-lockfile --ignore-scripts
+
+      - name: Run source and compliance gates
+        run: |
+          python packaging/check_compliance.py
+          pnpm --dir npm --filter @conghuy113/recaptcha-solver run typecheck
+          pnpm --dir npm --filter @conghuy113/recaptcha-solver run test
+          pnpm --dir npm --filter @conghuy113/recaptcha-solver run build
+
+      - name: Pack and verify the public package
+        run: |
+          mkdir -p artifacts
+          pnpm --dir npm/recaptcha-solver pack --out ../../artifacts/recaptcha-solver.tgz
+          node packaging/smoke_npm_install.mjs artifacts/recaptcha-solver.tgz
+
+      - name: Generate SBOM and dependency-license evidence
+        run: >-
+          node packaging/generate_release_evidence.mjs
+          artifacts/recaptcha-solver.tgz
+          artifacts/release-evidence
+
+      - name: Verify immutable model release through the package downloader
+        env:
+          RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD: "0"
+          RECAPTCHA_SOLVER_CACHE_DIR: ${{ runner.temp }}/verified-model-cache
+        run: node npm/recaptcha-solver/dist/postinstall.js
+
+      - name: Refuse replacement of an npm version
+        run: node packaging/check_registry_version.mjs
+
+      - name: Preserve release evidence in GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-release-evidence-${{ github.event.release.tag_name }}
+          path: |
+            artifacts/recaptcha-solver.tgz
+            artifacts/release-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach immutable evidence to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload "${{ github.event.release.tag_name }}"
+          artifacts/recaptcha-solver.tgz
+          artifacts/release-evidence/dependency-licenses.json
+          artifacts/release-evidence/release-evidence.json
+          artifacts/release-evidence/sbom.cdx.json
+
+      - name: Use an npm CLI that supports Trusted Publishing
+        run: npm install --global npm@11.18.0
+
+      - name: Publish with npm Trusted Publishing and provenance
+        run: npm publish artifacts/recaptcha-solver.tgz --access public --provenance

@@ -228,7 +228,9 @@ excluded from CI and refuses to run without the explicit approval variable.
 
 See [model licensing](MODEL_LICENSES.md),
 [dataset provenance](DATASET_PROVENANCE.md), and
-[third-party notices](THIRD_PARTY_NOTICES.md).
+[third-party notices](THIRD_PARTY_NOTICES.md). Maintainers should follow the
+[release process](docs/RELEASE.md), which covers the model gate, SBOM/license
+evidence, npm Trusted Publishing, and the required GitHub/npm configuration.
 
 ## Responsible use
 

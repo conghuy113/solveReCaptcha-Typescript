@@ -14,6 +14,7 @@ PUBLIC_REPOSITORY = "git+https://github.com/conghuy113/solveReCaptchaByAIVision.
 MODEL_RELEASE_PREFIX = (
     "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/"
 )
+NPM_PUBLISH_WORKFLOW = ".github/workflows/npm-publish.yml"
 REMOVED_RUNTIME_PATHS = (
     ".github/workflows/native-npm-build.yml",
     ".github/workflows/publish.yml",
@@ -59,6 +60,8 @@ def check_root_licenses() -> None:
         "THIRD_PARTY_NOTICES.md",
         "MODEL_LICENSES.md",
         "DATASET_PROVENANCE.md",
+        "CHANGELOG.md",
+        "docs/RELEASE.md",
     ):
         require_file(relative_path)
 
@@ -125,9 +128,70 @@ def check_removed_runtime() -> None:
 
 
 def check_release_routing() -> None:
-    workflow = require_file(".github/workflows/model-release.yml").read_text(encoding="utf-8")
-    if "workflow_dispatch:" not in workflow or "gh release create" not in workflow:
+    model_workflow = require_file(".github/workflows/model-release.yml").read_text(
+        encoding="utf-8"
+    )
+    if "workflow_dispatch:" not in model_workflow or "gh release create" not in model_workflow:
         raise RuntimeError("Model release must remain an explicit immutable workflow")
+    for pinned_dependency in ("torch==2.9.1", "torchvision==0.24.1"):
+        if pinned_dependency not in model_workflow:
+            raise RuntimeError(f"Model export dependency is not pinned: {pinned_dependency}")
+
+    npm_workflow = require_file(NPM_PUBLISH_WORKFLOW).read_text(encoding="utf-8")
+    required_fragments = (
+        "types: [published]",
+        "id-token: write",
+        "environment: npm-publish",
+        'node-version: "24"',
+        "npm@11.18.0",
+        "check_release_candidate.mjs",
+        "generate_release_evidence.mjs",
+        "check_registry_version.mjs",
+        "npm publish artifacts/recaptcha-solver.tgz --access public --provenance",
+    )
+    for fragment in required_fragments:
+        if fragment not in npm_workflow:
+            raise RuntimeError(f"npm Trusted Publishing workflow is missing: {fragment}")
+    for forbidden_secret in ("NPM_TOKEN", "NODE_AUTH_TOKEN"):
+        if forbidden_secret in npm_workflow:
+            raise RuntimeError(
+                f"npm workflow must not contain a long-lived token fallback: {forbidden_secret}"
+            )
+
+
+def check_release_evidence_policy() -> None:
+    for relative_path in (
+        "packaging/generate_release_evidence.mjs",
+        "packaging/check_release_candidate.mjs",
+        "packaging/check_registry_version.mjs",
+    ):
+        require_file(relative_path)
+    policy = load_json(require_file("packaging/license-policy.json"))
+    allowed = policy.get("allowedExpressions")
+    if policy.get("schemaVersion") != 1 or not isinstance(allowed, list) or not allowed:
+        raise RuntimeError("Dependency-license policy must be a non-empty versioned allowlist")
+    if any(not isinstance(expression, str) or not expression for expression in allowed):
+        raise RuntimeError("Dependency-license policy contains an invalid expression")
+    if "AGPL-3.0-only" not in allowed:
+        raise RuntimeError("Dependency-license policy must include the public package license")
+
+    approval = load_json(require_file("packaging/model-release-approval.json"))
+    if approval.get("schemaVersion") != 1 or approval.get("status") not in {
+        "blocked",
+        "approved",
+    }:
+        raise RuntimeError("Model release approval record has an invalid state")
+    if approval.get("status") == "approved":
+        evidence = approval.get("evidence")
+        if (
+            not isinstance(approval.get("reviewedBy"), str)
+            or not approval["reviewedBy"].strip()
+            or not isinstance(approval.get("reviewedAt"), str)
+            or not approval["reviewedAt"].strip()
+            or not isinstance(evidence, list)
+            or not evidence
+        ):
+            raise RuntimeError("Approved model release record has incomplete review evidence")
 
 
 def main() -> int:
@@ -136,6 +200,7 @@ def main() -> int:
     check_model_manifest()
     check_removed_runtime()
     check_release_routing()
+    check_release_evidence_policy()
     print("Public-package compliance checks passed.")
     return 0
 
