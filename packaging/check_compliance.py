@@ -15,6 +15,7 @@ MODEL_RELEASE_PREFIX = (
     "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/"
 )
 NPM_PUBLISH_WORKFLOW = ".github/workflows/npm-publish.yml"
+CI_WORKFLOW = ".github/workflows/ci.yml"
 REMOVED_RUNTIME_PATHS = (
     ".github/workflows/native-npm-build.yml",
     ".github/workflows/publish.yml",
@@ -146,6 +147,8 @@ def check_release_routing() -> None:
         "id-token: write",
         "environment: npm-publish",
         'node-version: "24"',
+        "pnpm/action-setup@v6",
+        "actions/upload-artifact@v6",
         "npm@11.18.0",
         "check_release_candidate.mjs",
         "generate_release_evidence.mjs",
@@ -160,6 +163,17 @@ def check_release_routing() -> None:
             raise RuntimeError(
                 f"npm workflow must not contain a long-lived token fallback: {forbidden_secret}"
             )
+
+    ci_workflow = require_file(CI_WORKFLOW).read_text(encoding="utf-8")
+    for action in (
+        "actions/checkout@v6",
+        "actions/setup-node@v6",
+        "actions/setup-python@v6",
+        "pnpm/action-setup@v6",
+        "actions/upload-artifact@v6",
+    ):
+        if action not in ci_workflow:
+            raise RuntimeError(f"CI workflow must use the Node.js 24 action release: {action}")
 
 
 def check_release_evidence_policy() -> None:
