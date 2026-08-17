@@ -275,7 +275,10 @@ export function mapSolveResult(raw: Record<string, unknown>): SolveReCaptchaResu
     message: requiredString(raw.message, "message"),
     clickCheckbox: raw.click_checkbox,
     token,
-    captchaType: requiredString(raw.captcha_type, "captcha_type"),
+    captchaType: requiredString(
+      raw.captcha_type,
+      "captcha_type",
+    ) as SolveReCaptchaResult["captchaType"],
     attempts: requiredNumber(raw.attempts, "attempts"),
     timeTaken: requiredNumber(raw.time_taken, "time_taken"),
     cookies: raw.cookies as BrowserCookie[],

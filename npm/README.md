@@ -18,9 +18,13 @@ TypeScript types; inference and browser modules remain internal.
 - TypeScript challenge I/O: iframe discovery, checkbox/tile/control actions,
   challenge text and payload extraction, bounded image download, and in-memory
   dynamic-grid composition.
-- Transitional path: `solveReCaptcha()` still delegates to a platform worker.
-  The internal TypeScript modules will replace that worker after orchestration
-  is ported and end-to-end parity is verified.
+- TypeScript challenge handlers: selection 3x3, dynamic 3x3, square 4x4,
+  confidence policy, bounded retries, and reload handling.
+- TypeScript solve path: `solveReCaptcha()` connects the CDP, model, navigation,
+  handler, verification, token, cookie, and cleanup stages directly.
+
+Platform-worker packages remain only as transitional workspace artifacts until
+end-to-end parity is verified and the cleanup phase removes them.
 
 ## Commands
 

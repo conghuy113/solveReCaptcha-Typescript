@@ -11,10 +11,9 @@ Inference runs locally with ONNX models. The library does not send challenge
 images to a hosted inference service, does not launch Chrome, and does not close
 the user's browser.
 
-> **Development status:** the TypeScript migration is in progress. The npm
-> package and its model Release must pass the documented release gates before
-> they are published. Installation commands below describe the package's public
-> contract once that release is available.
+> **Development status:** the consumer solve path is implemented in TypeScript.
+> End-to-end parity, transitional-worker cleanup, and the documented model/npm
+> release gates must still pass before publication.
 
 ## Features
 
@@ -27,7 +26,7 @@ the user's browser.
   challenges.
 - Pinned model versions with byte-size and SHA-256 verification.
 - Atomic model downloads, retries, cache locking, and corrupt-file cleanup.
-- Platform-specific worker packages selected automatically by npm.
+- Native TypeScript challenge handlers and solve orchestration.
 
 ## Requirements
 
@@ -47,8 +46,8 @@ the user's browser.
 npm install @conghuy113/recaptcha-solver
 ```
 
-The main package declares platform-specific workers as optional dependencies.
-Do not install with optional dependencies disabled.
+Transitional platform-worker packages remain in the workspace until the parity
+and cleanup phase, but `solveReCaptcha()` no longer invokes them.
 
 ## Start Chrome for remote debugging
 
@@ -106,7 +105,7 @@ console.log({
 - `currentUrl`: final page URL.
 
 The promise rejects when input validation, model preparation, browser
-connection, worker startup, or challenge solving fails.
+connection, model initialization, or challenge solving fails.
 
 ## Model delivery and cache
 
@@ -120,8 +119,8 @@ During `npm install`, the package downloads the immutable model set declared in
 restricted to trusted GitHub Release hosts. A model is moved into the cache only
 after both its exact byte size and SHA-256 digest match the manifest.
 
-The same verification runs before `solveReCaptcha()` starts, so installs that
-skip lifecycle scripts remain recoverable on first use.
+The same verification runs before local inference begins, so installs that
+skip lifecycle scripts remain recoverable on the first image challenge.
 
 ### Environment variables
 
@@ -130,7 +129,6 @@ skip lifecycle scripts remain recoverable on first use.
 | `RECAPTCHA_SOLVER_CACHE_DIR` | Overrides the package cache root. |
 | `RECAPTCHA_SOLVER_MODEL_DIR` | Uses a directory that already contains both verified model files. |
 | `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds. |
-| `RECAPTCHA_SOLVER_BINARY` | Uses an explicit worker binary during repository development and testing. |
 
 For offline deployment, populate `RECAPTCHA_SOLVER_MODEL_DIR` from a trusted
 artifact source. Files are still checked against the package manifest before
@@ -141,17 +139,17 @@ use.
 The consumer-facing path is:
 
 1. The application calls the TypeScript `solveReCaptcha()` function.
-2. The package verifies the two cached model files.
-3. The TypeScript client resolves and validates the matching platform worker.
-4. The worker attaches to the existing Chrome session through its debugging
-   port.
-5. Challenge images are processed locally and the result is returned through a
-   versioned JSON-lines protocol.
+2. The TypeScript CDP adapter attaches to the selected tab in the existing
+   Chrome debugging session.
+3. When an image challenge appears, the package verifies and loads the two
+   cached model files.
+4. TypeScript handlers navigate the challenge and run local ONNX inference.
+5. The library verifies completion, reads the token/cookies/current URL, and
+   detaches its CDP session without closing Chrome.
 
-The platform worker is transitional. Classification, detection, and direct CDP
-building blocks now have TypeScript implementations, but `solveReCaptcha()`
-continues to use the worker until the orchestration port is complete. These
-internal modules are deliberately not exported from the package entrypoint.
+Classification, detection, CDP, challenge handlers, and solve orchestration are
+internal modules. The package entrypoint deliberately exports only
+`solveReCaptcha()` and its associated result/option types.
 
 ## Development
 
@@ -180,15 +178,16 @@ python packaging/check_compliance.py
 ### Repository layout
 
 - `npm/recaptcha-solver/` — public TypeScript package.
-- `npm/platforms/` — platform-specific worker packages.
+- `npm/platforms/` — transitional worker packages retained until parity cleanup.
 - `npm/recaptcha-solver/src/models/` — manifest validation, download, cache,
   and integrity checks.
 - `npm/recaptcha-solver/src/inference/` — TypeScript ONNX inference modules.
 - `npm/recaptcha-solver/src/browser/cdp/` — loopback-only TypeScript CDP
   transport and browser adapters.
 - `npm/recaptcha-solver/src/challenge/` — TypeScript iframe navigation,
-  challenge DOM operations, guarded image download, and in-memory grid image
-  composition.
+  challenge handlers, retry policy, guarded image download, and in-memory grid
+  image composition.
+- `npm/recaptcha-solver/src/solver.ts` — internal TypeScript solve orchestration.
 - `packaging/` — worker builds, package smoke tests, compliance checks, and
   model-release tooling.
 - `tests/` — transitional worker regression tests.
