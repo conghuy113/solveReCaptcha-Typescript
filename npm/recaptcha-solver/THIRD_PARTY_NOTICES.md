@@ -2,9 +2,8 @@
 
 This package is distributed under the GNU Affero General Public License v3.0.
 
-Portions are derived from VisionAIRecaptchaSolver and
-RecaptchaDomainReplicator, copyright 2025 Danny Luna, originally distributed
-under the following MIT terms:
+Portions are derived from MIT-licensed upstream works and remain distributed
+under the following required MIT notice:
 
 Copyright 2025 Danny Luna
 

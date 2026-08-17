@@ -4,20 +4,12 @@ This project is distributed under the GNU Affero General Public License v3.0.
 The following notices identify direct upstream works and model assets whose
 copyright and license notices must be preserved.
 
-## VisionAIRecaptchaSolver upstream source
+## Preserved MIT notices
 
-Parts of this repository are derived from
-[`DannyLuna17/VisionAIRecaptchaSolver`](https://github.com/DannyLuna17/VisionAIRecaptchaSolver),
-copyright 2025 Danny Luna and originally distributed under the MIT License.
-The preserved notice is in
-[`LICENSES/vision-ai-recaptcha-solver-MIT.txt`](LICENSES/vision-ai-recaptcha-solver-MIT.txt).
-
-## RecaptchaDomainReplicator
-
-The retired Python implementation was derived in part from
-[`DannyLuna17/RecaptchaDomainReplicator`](https://github.com/DannyLuna17/RecaptchaDomainReplicator),
-copyright 2025 Danny Luna and distributed under the MIT License. The preserved
-notice is in
+Portions of this repository are derived from MIT-licensed upstream works. The
+required original copyright and permission notices are preserved in
+[`LICENSES/vision-ai-recaptcha-solver-MIT.txt`](LICENSES/vision-ai-recaptcha-solver-MIT.txt)
+and
 [`LICENSES/recaptcha-domain-replicator-MIT.txt`](LICENSES/recaptcha-domain-replicator-MIT.txt).
 
 ## Ultralytics model assets
