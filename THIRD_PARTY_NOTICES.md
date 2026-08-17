@@ -33,9 +33,11 @@ The TypeScript runtime directly depends on
 [`ws`](https://www.npmjs.com/package/ws), licensed under MIT, and
 [`sharp`](https://www.npmjs.com/package/sharp), licensed under Apache-2.0.
 These dependencies retain their own copyright and license notices inside their
-distributions.
+distributions. Sharp's platform packages also deliver libvips components under
+LGPL-3.0-or-later.
 
 Maintainer-only model-release tools use their declared Python dependencies;
 they are not part of the installed npm runtime. All dependencies retain their
-own copyright and license terms. A generated dependency-license inventory and
-SBOM are release gates and must be reviewed before publishing the npm package.
+own copyright and license terms. CI generates and policy-checks a dependency
+license inventory and CycloneDX SBOM from the exact packed npm artifact before
+publication; the release workflow attaches both records to the GitHub Release.

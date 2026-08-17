@@ -55,3 +55,17 @@ jobs:
 
       - name: Install the tarball and exercise the public API
         run: node packaging/smoke_npm_install.mjs artifacts/core.tgz
+
+      - name: Generate and validate release evidence
+        run: >-
+          node packaging/generate_release_evidence.mjs
+          artifacts/core.tgz
+          artifacts/release-evidence
+
+      - name: Preserve dry-run SBOM and dependency licenses
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: artifacts/release-evidence
+          if-no-files-found: error
+          retention-days: 14
