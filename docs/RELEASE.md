@@ -4,15 +4,14 @@ This repository separates model publication from npm publication. Both paths
 are fail-closed: a failed or incomplete gate must not be bypassed by editing a
 generated artifact after it has been checked.
 
-## Current release blockers
+## Current release state
 
-The classification training-data review in `DATASET_PROVENANCE.md` is not
-complete. Do not run the model release workflow with `RELEASE_APPROVED` until a
-maintainer has recorded the missing source/permission evidence or an
-appropriate license review has concluded that redistribution of the weights is
-permitted.
+The classification training-data review and the maintainer's residual-risk
+decision are recorded in `DATASET_PROVENANCE.md` and
+`packaging/model-release-approval.json`. A new review is required before a
+later model-set version is published if material provenance evidence changes.
 
-The npm workflow also cannot succeed until the immutable model release exists,
+The npm workflow cannot succeed until the immutable model release exists,
 because it downloads both files and verifies their exact byte sizes and SHA-256
 digests before publishing.
 
