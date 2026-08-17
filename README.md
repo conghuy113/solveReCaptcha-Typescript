@@ -1,4 +1,4 @@
-# @conghuy113/recaptcha-solver
+# recaptcha-solver
 
 [![CI](https://github.com/conghuy113/solveReCaptchaByAIVision/actions/workflows/ci.yml/badge.svg)](https://github.com/conghuy113/solveReCaptchaByAIVision/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
@@ -86,11 +86,11 @@ console.log({
 
 ### Options
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `targetUrl` | `string` | Full URL or stable URL fragment used to locate the already-open tab. |
-| `port` | `number` | Chrome remote-debugging port on `127.0.0.1`. Must be between 1 and 65535. |
-| `clickCheckbox` | `boolean` | Whether to click the checkbox before handling an image challenge. |
+| Option          | Type      | Description                                                               |
+| --------------- | --------- | ------------------------------------------------------------------------- |
+| `targetUrl`     | `string`  | Full URL or stable URL fragment used to locate the already-open tab.      |
+| `port`          | `number`  | Chrome remote-debugging port on `127.0.0.1`. Must be between 1 and 65535. |
+| `clickCheckbox` | `boolean` | Whether to click the checkbox before handling an image challenge.         |
 
 ### Result
 
@@ -124,10 +124,10 @@ skip lifecycle scripts remain recoverable on the first image challenge.
 
 ### Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `RECAPTCHA_SOLVER_CACHE_DIR` | Overrides the package cache root. |
-| `RECAPTCHA_SOLVER_MODEL_DIR` | Uses a directory that already contains both verified model files. |
+| Variable                                 | Purpose                                                           |
+| ---------------------------------------- | ----------------------------------------------------------------- |
+| `RECAPTCHA_SOLVER_CACHE_DIR`             | Overrides the package cache root.                                 |
+| `RECAPTCHA_SOLVER_MODEL_DIR`             | Uses a directory that already contains both verified model files. |
 | `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds. |
 
 For offline deployment, populate `RECAPTCHA_SOLVER_MODEL_DIR` from a trusted
