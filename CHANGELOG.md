@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.3 — 2026-08-18
+
+- Increased the default maximum solve attempts from 12 to 20.
+- Updated release compliance validation for the current copyright-only MIT
+  notices.
+
 ## 0.1.2 — 2026-08-18
 
 - Fixed a CDP cleanup race that could close Chrome DevTools while successful
