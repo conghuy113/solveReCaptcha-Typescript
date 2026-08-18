@@ -10,9 +10,9 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_ROOT = PROJECT_ROOT / "npm" / "recaptcha-solver"
-PUBLIC_REPOSITORY = "git+https://github.com/conghuy113/solveReCaptchaByAIVision.git"
+PUBLIC_REPOSITORY = "git+https://github.com/conghuy113/solveReCaptcha-Typescript.git"
 MODEL_RELEASE_PREFIX = (
-    "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/"
+    "https://github.com/conghuy113/solveReCaptcha-Typescript/releases/download/"
 )
 NPM_PUBLISH_WORKFLOW = ".github/workflows/npm-publish.yml"
 CI_WORKFLOW = ".github/workflows/ci.yml"

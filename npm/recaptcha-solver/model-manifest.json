@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "modelSetVersion": "1.0.0",
-  "releaseTag": "models-v1.0.0",
+  "modelSetVersion": "1.0.1",
+  "releaseTag": "models-v1.0.1",
   "license": "AGPL-3.0-only",
   "models": [
     {
       "id": "classification",
       "fileName": "recaptcha_classification_57k.onnx",
-      "url": "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/models-v1.0.0/recaptcha_classification_57k.onnx",
+      "url": "https://github.com/conghuy113/solveReCaptcha-Typescript/releases/download/models-v1.0.1/recaptcha_classification_57k.onnx",
       "size": 113597179,
       "sha256": "4092e8917ee8c2963895d66ba10a97d6ef975c468a95858a8a7bd9e70681b65d",
       "task": "classify",
@@ -19,7 +19,7 @@
     {
       "id": "detection",
       "fileName": "yolo12x.onnx",
-      "url": "https://github.com/conghuy113/solveReCaptchaByAIVision/releases/download/models-v1.0.0/yolo12x.onnx",
+      "url": "https://github.com/conghuy113/solveReCaptcha-Typescript/releases/download/models-v1.0.1/yolo12x.onnx",
       "size": 236935676,
       "sha256": "3ca6164a7bd3d472447604c79e686f053e90c23218f68848ea912dab62f8aa43",
       "task": "detect",
