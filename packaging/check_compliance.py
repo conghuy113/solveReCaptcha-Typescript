@@ -54,7 +54,12 @@ def check_root_licenses() -> None:
         "LICENSES/recaptcha-domain-replicator-MIT.txt",
     ):
         notice = require_file(relative_path).read_text(encoding="utf-8")
-        if not notice.startswith("Copyright 2026 ") or "Permission is hereby granted" not in notice:
+        lines = notice.splitlines()
+        if (
+            not lines
+            or lines[0].strip() != "Copyright 2026"
+            or "Permission is hereby granted" not in notice
+        ):
             raise RuntimeError(f"Upstream MIT notice is incomplete: {relative_path}")
 
     for relative_path in (
@@ -84,7 +89,11 @@ def check_npm_package() -> None:
         if required_name not in files or not (PACKAGE_ROOT / required_name).is_file():
             raise RuntimeError(f"npm package does not include {required_name}")
     package_notice = (PACKAGE_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-    if "Copyright 2026 " not in package_notice or "Permission is hereby granted" not in package_notice:
+    package_notice_lines = {line.strip() for line in package_notice.splitlines()}
+    if (
+        "Copyright 2026" not in package_notice_lines
+        or "Permission is hereby granted" not in package_notice
+    ):
         raise RuntimeError("npm package does not preserve the required upstream MIT notice")
 
     repository = package.get("repository")
