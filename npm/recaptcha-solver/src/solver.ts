@@ -266,7 +266,9 @@ export async function solveReCaptchaWithDependencies(
 
     if (await navigation.isSolved(2_000)) {
       const token = await readToken(browser);
-      return result(
+      // Await inside the try block so finally cannot close CDP while result()
+      // is still reading cookies and the current URL.
+      return await result(
         browser,
         options,
         startTime,
@@ -316,7 +318,7 @@ export async function solveReCaptchaWithDependencies(
           dependencies.defaultTimeoutMs,
         );
         if (completion) {
-          return result(
+          return await result(
             browser,
             options,
             startTime,
@@ -335,7 +337,7 @@ export async function solveReCaptchaWithDependencies(
 
     const finalToken = await readToken(browser);
     if (finalToken) {
-      return result(
+      return await result(
         browser,
         options,
         startTime,
@@ -347,7 +349,7 @@ export async function solveReCaptchaWithDependencies(
       );
     }
     if (await navigation.isSolved(2_000)) {
-      return result(
+      return await result(
         browser,
         options,
         startTime,
