@@ -6,6 +6,8 @@ All notable changes to this project are documented here.
 
 - Added a CommonJS entrypoint so
   `require("@conghuy113/recaptcha-solver")` works on Node.js 20 and newer.
+- Fixed a CDP cleanup race that could close Chrome DevTools while successful
+  result metadata was still being read.
 
 ## 0.1.0 — 2026-08-17
 

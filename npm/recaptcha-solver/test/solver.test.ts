@@ -44,6 +44,39 @@ class FakeChrome implements SolverChrome {
   async close(): Promise<void> { this.closed = true; }
 }
 
+class CloseAwareBrowser extends FakeBrowser {
+  connectionClosed = false;
+
+  async #afterCdpResponse<T>(value: T): Promise<T> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (this.connectionClosed) {
+      throw new Error("Chrome DevTools connection was closed.");
+    }
+    return value;
+  }
+
+  override async url(): Promise<string> {
+    return this.#afterCdpResponse(this.currentUrl);
+  }
+
+  override async cookies(): Promise<Array<Record<string, unknown>>> {
+    return this.#afterCdpResponse([
+      { name: "session", value: "cookie", httpOnly: true },
+    ]);
+  }
+}
+
+class CloseAwareChrome extends FakeChrome {
+  constructor(readonly closeAwareBrowser: CloseAwareBrowser) {
+    super(closeAwareBrowser);
+  }
+
+  override async close(): Promise<void> {
+    this.closeAwareBrowser.connectionClosed = true;
+    await super.close();
+  }
+}
+
 class FakeNavigation implements SolverNavigation {
   solved = false;
   verifyClicked = true;
@@ -129,6 +162,26 @@ test("returns immediately when the checkbox produces a token", async () => {
   assert.deepEqual(output.cookies, [{ name: "session", value: "cookie", httpOnly: true }]);
   assert.equal(fixture.navigation.checkboxClicks, 1);
   assert.equal(fixture.chrome.closed, true);
+});
+
+test("finishes reading result metadata before closing the CDP connection", async () => {
+  const browser = new CloseAwareBrowser();
+  browser.token = "token-value";
+  const chrome = new CloseAwareChrome(browser);
+  const navigation = new FakeNavigation();
+  navigation.solved = true;
+  const fixture = dependencies({ browser, navigation });
+  const output = await solveReCaptchaWithDependencies(
+    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: true },
+    {
+      ...fixture.dependencies,
+      connectChrome: async () => chrome,
+    },
+  );
+  assert.equal(output.completionReason, "token_found");
+  assert.equal(output.currentUrl, "https://example.com/form");
+  assert.deepEqual(output.cookies, [{ name: "session", value: "cookie", httpOnly: true }]);
+  assert.equal(chrome.closed, true);
 });
 
 test("orchestrates an image handler and returns the verified token", async () => {
