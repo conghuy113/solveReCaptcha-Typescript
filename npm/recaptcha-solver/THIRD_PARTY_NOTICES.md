@@ -5,7 +5,7 @@ This package is distributed under the GNU Affero General Public License v3.0.
 Portions are derived from MIT-licensed upstream works and remain distributed
 under the following required MIT notice:
 
-Copyright 2025 Danny Luna
+Copyright 2026
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the “Software”), to deal in
