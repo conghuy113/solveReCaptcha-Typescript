@@ -23,7 +23,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_MAX_ATTEMPTS = 12;
+const DEFAULT_MAX_ATTEMPTS = 20;
 
 export class SolverTimeoutError extends Error {
   constructor(message: string) {
