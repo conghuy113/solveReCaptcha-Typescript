@@ -2,6 +2,18 @@
   "name": "@conghuy113/recaptcha-solver",
   "version": "0.1.4",
   "description": "AGPL TypeScript client for solving reCAPTCHA in an already-open Chrome browser",
+   "keywords": [
+    "recaptcha",
+    "captcha",
+    "recaptcha-solver",
+    "typescript",
+    "chrome-devtools-protocol",
+    "cdp",
+    "onnx",
+    "computer-vision",
+    "browser-automation",
+    "nodejs"
+  ],
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
