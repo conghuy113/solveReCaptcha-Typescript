@@ -9,6 +9,7 @@
     "exactOptionalPropertyTypes": true,
     "declaration": true,
     "sourceMap": true,
+    "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true

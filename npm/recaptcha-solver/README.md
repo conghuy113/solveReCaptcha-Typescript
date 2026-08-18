@@ -21,6 +21,12 @@ const result = await solveReCaptcha({
 console.log(result.token);
 ```
 
+CommonJS is supported too:
+
+```js
+const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
+```
+
 Chrome must already be running with remote debugging enabled on the supplied
 loopback port. The package only attaches to that existing browser and never
 starts or closes Chrome.
