@@ -1,8 +1,8 @@
 {
   "name": "@conghuy113/recaptcha-solver",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AGPL TypeScript client for solving reCAPTCHA in an already-open Chrome browser",
-   "keywords": [
+  "keywords": [
     "recaptcha",
     "captcha",
     "recaptcha-solver",
