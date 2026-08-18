@@ -94,6 +94,30 @@ def check_npm_package() -> None:
     if "optionalDependencies" in package:
         raise RuntimeError("TypeScript-only package must not declare platform workers")
 
+    exports = package.get("exports")
+    root_export = exports.get(".") if isinstance(exports, dict) else None
+    expected_entrypoints = {
+        "main": "./dist/index.cjs",
+        "module": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+    }
+    for field, expected in expected_entrypoints.items():
+        if package.get(field) != expected:
+            raise RuntimeError(f"npm package {field} must point to {expected}")
+    if not isinstance(root_export, dict):
+        raise RuntimeError("npm package has no root conditional export")
+    expected_exports = {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "require": "./dist/index.cjs",
+        "default": "./dist/index.js",
+    }
+    for condition, expected in expected_exports.items():
+        if root_export.get(condition) != expected:
+            raise RuntimeError(
+                f"npm package export condition {condition} must point to {expected}"
+            )
+
     entrypoint = require_file("npm/recaptcha-solver/src/index.ts").read_text(encoding="utf-8")
     if entrypoint.count("export { solveReCaptcha }") != 1 or "WorkerClient" in entrypoint:
         raise RuntimeError("Public entrypoint must export only the TypeScript solve path")

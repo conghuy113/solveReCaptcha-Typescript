@@ -84,6 +84,12 @@ console.log({
 });
 ```
 
+CommonJS projects can load the same API with `require()`:
+
+```js
+const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
+```
+
 ### Options
 
 | Option          | Type      | Description                                                               |

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+
+import bundledManifest from "../../model-manifest.json" with { type: "json" };
 
 import type {
   ModelAsset,
@@ -127,19 +127,9 @@ export function validateModelManifest(value: unknown): ModelManifest {
   };
 }
 
-function defaultManifestPath(): string {
-  const candidates = [
-    fileURLToPath(new URL("../model-manifest.json", import.meta.url)),
-    fileURLToPath(new URL("../../model-manifest.json", import.meta.url)),
-  ];
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) {
-    throw new Error(`Could not locate model-manifest.json; checked: ${candidates.join(", ")}`);
-  }
-  return found;
-}
+export async function loadModelManifest(path?: string): Promise<ModelManifest> {
+  if (path === undefined) return validateModelManifest(bundledManifest);
 
-export async function loadModelManifest(path = defaultManifestPath()): Promise<ModelManifest> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(path, "utf8")) as unknown;

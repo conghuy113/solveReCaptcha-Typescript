@@ -83,7 +83,7 @@ mkdir -p artifacts
 pnpm --dir npm/recaptcha-solver pack --out ../../artifacts/recaptcha-solver.tgz
 node packaging/smoke_npm_install.mjs artifacts/recaptcha-solver.tgz
 node packaging/generate_release_evidence.mjs artifacts/recaptcha-solver.tgz artifacts/release-evidence
-node packaging/check_release_candidate.mjs v0.1.0 --manifest-only
+node packaging/check_release_candidate.mjs v0.1.1 --manifest-only
 ```
 
 The live model-download gate can be tested only after the model Release exists.

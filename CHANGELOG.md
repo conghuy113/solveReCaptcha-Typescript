@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.1 — 2026-08-18
+
+- Added a CommonJS entrypoint so
+  `require("@conghuy113/recaptcha-solver")` works on Node.js 20 and newer.
+
 ## 0.1.0 — 2026-08-17
 
 - Introduced the single-function TypeScript API `solveReCaptcha()`.

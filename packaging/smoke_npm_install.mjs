@@ -102,11 +102,30 @@ try {
   });
   process.stdout.write(result.stdout);
 
+  const commonJsConsumerPath = join(tempRoot, "consumer.cjs");
+  writeFileSync(commonJsConsumerPath, `
+    const solver = require("@conghuy113/recaptcha-solver");
+    if (JSON.stringify(Object.keys(solver)) !== JSON.stringify(["solveReCaptcha"])) {
+      throw new Error("The CommonJS package exports an unexpected runtime API.");
+    }
+    if (typeof solver.solveReCaptcha !== "function") {
+      throw new Error("The CommonJS package does not export solveReCaptcha().");
+    }
+    console.log("Packed CommonJS public API loaded through require().");
+  `);
+  const commonJsResult = run(process.execPath, [commonJsConsumerPath], {
+    cwd: tempRoot,
+    env: smokeEnvironment,
+    shell: false,
+    timeout: 120_000,
+  });
+  process.stdout.write(commonJsResult.stdout);
+
   const installedRoot = join(tempRoot, "node_modules", "@conghuy113", "recaptcha-solver");
   const installedManifest = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.optionalDependencies) fail("Packed library still declares platform workers.");
   const bundle = readdirSync(join(installedRoot, "dist"))
-    .filter((file) => file.endsWith(".js"))
+    .filter((file) => file.endsWith(".js") || file.endsWith(".cjs"))
     .map((file) => readFileSync(join(installedRoot, "dist", file), "utf8"))
     .join("\n");
   for (const forbidden of ["WorkerClient", "recaptcha-solver-worker", "resolveWorkerBinary"]) {
