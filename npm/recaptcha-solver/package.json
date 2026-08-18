@@ -1,16 +1,16 @@
 {
   "name": "@conghuy113/recaptcha-solver",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "AGPL TypeScript client for solving reCAPTCHA in an already-open Chrome browser",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/conghuy113/solveReCaptchaByAIVision.git",
+    "url": "git+https://github.com/conghuy113/solveReCaptcha-Typescript.git",
     "directory": "npm/recaptcha-solver"
   },
-  "homepage": "https://github.com/conghuy113/solveReCaptchaByAIVision#readme",
+  "homepage": "https://github.com/conghuy113/solveReCaptcha-Typescript#readme",
   "bugs": {
-    "url": "https://github.com/conghuy113/solveReCaptchaByAIVision/issues"
+    "url": "https://github.com/conghuy113/solveReCaptcha-Typescript/issues"
   },
   "type": "module",
   "main": "./dist/index.cjs",

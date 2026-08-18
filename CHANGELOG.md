@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.4 — 2026-08-17
+
+- Published model set `models-v1.0.1`.
+
 ## 0.1.3 — 2026-08-18
 
 - Increased the default maximum solve attempts from 12 to 20.
