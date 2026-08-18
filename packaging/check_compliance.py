@@ -62,7 +62,6 @@ def check_root_licenses() -> None:
         "MODEL_LICENSES.md",
         "DATASET_PROVENANCE.md",
         "CHANGELOG.md",
-        "docs/RELEASE.md",
     ):
         require_file(relative_path)
 

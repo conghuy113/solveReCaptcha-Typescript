@@ -91,3 +91,4 @@ tmp/
 *.png
 
 modelOld.onnx
+docs/

@@ -28,8 +28,6 @@ NOTICE_PATHS = (
     PROJECT_ROOT / "MODEL_LICENSES.md",
     PROJECT_ROOT / "DATASET_PROVENANCE.md",
     APPROVAL_PATH,
-    PROJECT_ROOT / "docs" / "model-cards" / "classification.md",
-    PROJECT_ROOT / "docs" / "model-cards" / "detection.md",
     PACKAGE_MANIFEST,
 )
 

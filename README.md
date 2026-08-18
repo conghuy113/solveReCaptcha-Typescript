@@ -11,10 +11,6 @@ Inference runs locally with ONNX models. The library does not send challenge
 images to a hosted inference service, does not launch Chrome, and does not close
 the user's browser.
 
-> **Development status:** the consumer solve path and deterministic parity suite
-> are implemented in TypeScript. The Python/native worker has been retired.
-> Model provenance and npm release gates must still pass before publication.
-
 ## Features
 
 - TypeScript types and an ESM entry point.
@@ -45,9 +41,6 @@ the user's browser.
 ```bash
 npm install @conghuy113/recaptcha-solver
 ```
-
-The installed package contains the TypeScript implementation only. It does not
-install Python, a native worker, or per-platform companion packages.
 
 ## Start Chrome for remote debugging
 
@@ -113,21 +106,6 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 The promise rejects when input validation, model preparation, browser
 connection, model initialization, or challenge solving fails.
 
-## Model delivery and cache
-
-The package uses two ONNX assets:
-
-- `recaptcha_classification_57k.onnx` for tile classification.
-- `yolo12x.onnx` for object detection.
-
-During `npm install`, the package downloads the immutable model set declared in
-[`model-manifest.json`](npm/recaptcha-solver/model-manifest.json). Downloads are
-restricted to trusted GitHub Release hosts. A model is moved into the cache only
-after both its exact byte size and SHA-256 digest match the manifest.
-
-The same verification runs before local inference begins, so installs that
-skip lifecycle scripts remain recoverable on the first image challenge.
-
 ### Environment variables
 
 | Variable                                 | Purpose                                                           |
@@ -180,47 +158,6 @@ workflows, model routing, or licensing files:
 python packaging/check_compliance.py
 ```
 
-### Repository layout
-
-- `npm/recaptcha-solver/` — public TypeScript package.
-- `npm/recaptcha-solver/src/models/` — manifest validation, download, cache,
-  and integrity checks.
-- `npm/recaptcha-solver/src/inference/` — TypeScript ONNX inference modules.
-- `npm/recaptcha-solver/src/browser/cdp/` — loopback-only TypeScript CDP
-  transport and browser adapters.
-- `npm/recaptcha-solver/src/challenge/` — TypeScript iframe navigation,
-  challenge handlers, retry policy, guarded image download, and in-memory grid
-  image composition.
-- `npm/recaptcha-solver/src/solver.ts` — internal TypeScript solve orchestration.
-- `npm/recaptcha-solver/test/` — deterministic unit, integration, parity, and
-  public-API tests.
-- `packaging/` — package smoke tests, compliance checks, and model-release
-  tooling. Its Python scripts are maintainer tooling, not a consumer runtime.
-
-To smoke-test the TypeScript CDP adapter against an authorized local page,
-start Chrome with remote debugging, open the page, and run:
-
-```bash
-CDP_TARGET_URL=https://example.com CDP_PORT=9222 \
-  pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:cdp
-```
-
-This live smoke test is optional and is not run by CI. CI uses deterministic
-CDP fakes and never contacts reCAPTCHA.
-
-To exercise the full solve path against a page you own or are explicitly
-authorized to test, set the additional opt-in guard and run:
-
-```bash
-RECAPTCHA_SOLVER_LIVE_APPROVED=YES \
-RECAPTCHA_SOLVER_TARGET_URL=https://example.com \
-RECAPTCHA_SOLVER_CDP_PORT=9222 \
-pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
-```
-
-This command may click the checkbox and challenge tiles. It is deliberately
-excluded from CI and refuses to run without the explicit approval variable.
-
 ## Release safety
 
 - Source code and npm packages are licensed under AGPL-3.0-only.
@@ -231,18 +168,6 @@ excluded from CI and refuses to run without the explicit approval variable.
   is completed.
 - npm publication should use registry provenance and an explicit files
   allowlist.
-
-See [model licensing](MODEL_LICENSES.md),
-[dataset provenance](DATASET_PROVENANCE.md), and
-[third-party notices](THIRD_PARTY_NOTICES.md). Maintainers should follow the
-[release process](docs/RELEASE.md), which covers the model gate, SBOM/license
-evidence, npm Trusted Publishing, and the required GitHub/npm configuration.
-
-## Responsible use
-
-Use this library only on systems you own or are explicitly authorized to test.
-Users are responsible for complying with applicable law, website terms, and
-service policies.
 
 ## License
 
