@@ -140,10 +140,10 @@ connection, model initialization, or challenge solving fails.
 
 ### Environment variables
 
-| Variable                                 | Purpose                                                           |
-| ---------------------------------------- | ----------------------------------------------------------------- |
+| Variable                                 | Purpose                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
 | `RECAPTCHA_SOLVER_MODEL_DIR`             | Selects the exact directory where both models are verified or downloaded. |
-| `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds. |
+| `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds.         |
 
 For offline deployment, populate `RECAPTCHA_SOLVER_MODEL_DIR` from a trusted
 artifact source. Files are still checked against the package manifest before
@@ -271,23 +271,6 @@ services:
 The Dockerfile must declare the matching `ARG` and `ENV` shown above. A Compose
 `environment` entry alone applies only after the image has been built, so it
 cannot change the model destination used by `npm ci` during `docker build`.
-
-## Architecture
-
-The consumer-facing path is:
-
-1. The application calls the TypeScript `solveReCaptcha()` function.
-2. The TypeScript CDP adapter attaches to the selected tab in the existing
-   Chrome debugging session.
-3. When an image challenge appears, the package verifies and loads the two
-   cached model files.
-4. TypeScript handlers navigate the challenge and run local ONNX inference.
-5. The library verifies completion, reads the token/cookies/current URL, and
-   detaches its CDP session without closing Chrome.
-
-Classification, detection, CDP, challenge handlers, and solve orchestration are
-internal modules. The package entrypoint deliberately exports only
-`solveReCaptcha()` and its associated result/option types.
 
 ## Development
 
