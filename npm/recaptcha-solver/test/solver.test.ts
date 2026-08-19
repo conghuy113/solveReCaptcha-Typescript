@@ -20,6 +20,7 @@ import type {
   SolverDependencies,
   SolverNavigation,
 } from "../src/solver.js";
+import type { SolveReCaptchaOptions } from "../src/types.js";
 
 class FakeClock implements SolverClock {
   current = 0;
@@ -135,9 +136,52 @@ function dependencies(options: {
 }
 
 test("validates the stable public options contract", () => {
-  assert.doesNotThrow(() => validateSolveOptions({ targetUrl: "https://example.com", port: 9222, clickCheckbox: true }));
+  const valid: SolveReCaptchaOptions = {
+    targetUrl: "https://example.com",
+    port: 9222,
+    clickCheckbox: true,
+  };
+  assert.doesNotThrow(() => validateSolveOptions(valid));
+  assert.doesNotThrow(() => validateSolveOptions({
+    ...valid,
+    confidence: {},
+  }));
+  assert.doesNotThrow(() => validateSolveOptions({
+    ...valid,
+    confidence: {
+      classificationMinConfidence: 0,
+      detectionConfidence: 1,
+    },
+  }));
   assert.throws(() => validateSolveOptions({ targetUrl: "", port: 9222, clickCheckbox: true }), /targetUrl/);
   assert.throws(() => validateSolveOptions({ targetUrl: "x", port: 0, clickCheckbox: true }), /port/);
+
+  const withInvalidConfidence = (confidence: unknown): SolveReCaptchaOptions => ({
+    ...valid,
+    confidence,
+  } as SolveReCaptchaOptions);
+  for (const invalid of [null, [], "0.2", 0.2, new Date()]) {
+    assert.throws(
+      () => validateSolveOptions(withInvalidConfidence(invalid)),
+      /confidence must be an object/,
+    );
+  }
+  for (const invalid of [-0.01, 1.01, Number.NaN, Number.POSITIVE_INFINITY, "0.2"]) {
+    assert.throws(
+      () => validateSolveOptions(withInvalidConfidence({
+        classificationMinConfidence: invalid,
+      })),
+      /classificationMinConfidence/,
+    );
+  }
+  assert.throws(
+    () => validateSolveOptions(withInvalidConfidence({ detectionConfidense: 0.7 })),
+    /Unsupported confidence option: detectionConfidense/,
+  );
+  assert.throws(
+    () => validateSolveOptions(withInvalidConfidence({ detectionConfidence: -0.01 })),
+    /detectionConfidence/,
+  );
 });
 
 test("determines the three supported image challenge types", () => {
@@ -153,12 +197,21 @@ test("returns immediately when the checkbox produces a token", async () => {
   navigation.solved = true;
   const fixture = dependencies({ browser, navigation });
   const output = await solveReCaptchaWithDependencies(
-    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: true },
+    {
+      targetUrl: "https://example.com/form",
+      port: 9222,
+      clickCheckbox: true,
+      confidence: {
+        classificationMinConfidence: 0.4,
+        detectionConfidence: 0.8,
+      },
+    },
     fixture.dependencies,
   );
   assert.equal(output.completionReason, "token_found");
   assert.equal(output.captchaType, "no_challenge");
   assert.equal(output.token, "token-value");
+  assert.equal("confidence" in output, false);
   assert.deepEqual(output.cookies, [{ name: "session", value: "cookie", httpOnly: true }]);
   assert.equal(fixture.navigation.checkboxClicks, 1);
   assert.equal(fixture.chrome.closed, true);
@@ -192,14 +245,34 @@ test("orchestrates an image handler and returns the verified token", async () =>
     browser.token = "verified-token";
     return true;
   };
+  let handlerConfidence: {
+    classificationMinConfidence: number;
+    detectionConfidence: number;
+  } | undefined;
   const output = await solveReCaptchaWithDependencies(
-    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: false },
-    fixture.dependencies,
+    {
+      targetUrl: "https://example.com/form",
+      port: 9222,
+      clickCheckbox: false,
+      confidence: { detectionConfidence: 0.75 },
+    },
+    {
+      ...fixture.dependencies,
+      createHandlers: (_navigation, _classification, _detection, confidence) => {
+        handlerConfidence = confidence;
+        return fixture.handlers;
+      },
+    },
   );
   assert.equal(output.completionReason, "token_found");
   assert.equal(output.captchaType, "selection_3x3");
   assert.equal(output.attempts, 1);
   assert.equal(output.token, "verified-token");
+  assert.deepEqual(handlerConfidence, {
+    classificationMinConfidence: 0.2,
+    detectionConfidence: 0.75,
+  });
+  assert.deepEqual(output.confidence, { detectionConfidence: 0.75 });
   assert.deepEqual(fixture.handlers.calls, [{ type: "selection_3x3", keyword: "buses" }]);
   assert.equal(fixture.chrome.closed, true);
 });
@@ -222,7 +295,15 @@ test("integrates orchestration, target mapping, ranking, and tile clicks without
   };
   const chrome = new FakeChrome(browser);
   const output = await solveReCaptchaWithDependencies(
-    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: false },
+    {
+      targetUrl: "https://example.com/form",
+      port: 9222,
+      clickCheckbox: false,
+      confidence: {
+        classificationMinConfidence: 0.7,
+        detectionConfidence: 0.77,
+      },
+    },
     {
       connectChrome: async () => chrome,
       loadRuntime: async () => ({
@@ -237,13 +318,15 @@ test("integrates orchestration, target mapping, ranking, and tile clicks without
         detection: { detectGridCells: async () => [] },
       }),
       createNavigation: () => navigation,
-      createHandlers: (activeNavigation, classification, detection) => new CaptchaHandlers(
+      createHandlers: (activeNavigation, classification, detection, confidence) => new CaptchaHandlers(
         activeNavigation,
         classification,
         detection,
         {
           clock,
           defaultTimeoutMs: 1_000,
+          minConfidence: confidence.classificationMinConfidence,
+          detectionConfidence: confidence.detectionConfidence,
           downloadImage: async () => Buffer.from("fixture"),
         },
       ),
@@ -256,6 +339,10 @@ test("integrates orchestration, target mapping, ranking, and tile clicks without
   assert.equal(output.token, "integrated-token");
   assert.equal(output.captchaType, "selection_3x3");
   assert.equal(output.completionReason, "token_found");
+  assert.deepEqual(output.confidence, {
+    classificationMinConfidence: 0.7,
+    detectionConfidence: 0.77,
+  });
   assert.equal(chrome.closed, true);
 });
 
@@ -274,6 +361,7 @@ test("reports URL navigation as a successful completion without requiring a toke
   assert.equal(output.completionReason, "url_changed");
   assert.equal(output.token, null);
   assert.equal(output.currentUrl, "https://example.com/complete");
+  assert.equal("confidence" in output, false);
   assert.equal(fixture.chrome.closed, true);
 });
 

@@ -40,9 +40,6 @@ function errno(error: unknown): string | undefined {
 }
 
 function defaultCacheRoot(): string {
-  if (process.env.RECAPTCHA_SOLVER_CACHE_DIR) {
-    return process.env.RECAPTCHA_SOLVER_CACHE_DIR;
-  }
   if (process.platform === "win32") {
     return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "conghuy113-recaptcha-solver");
   }

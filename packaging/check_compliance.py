@@ -162,6 +162,21 @@ def check_removed_runtime() -> None:
     if "platforms" in workspace:
         raise RuntimeError("npm workspace must contain only the TypeScript package")
 
+    removed_cache_override = "RECAPTCHA_SOLVER_" + "CACHE_DIR"
+    for relative_path in (
+        "npm/recaptcha-solver/src/models/manager.ts",
+        "npm/recaptcha-solver/src/postinstall.ts",
+        "README.md",
+        "npm/recaptcha-solver/README.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/npm-publish.yml",
+    ):
+        contents = require_file(relative_path).read_text(encoding="utf-8")
+        if removed_cache_override in contents:
+            raise RuntimeError(
+                f"Removed model-cache environment override returned: {relative_path}"
+            )
+
 
 def check_release_routing() -> None:
     model_workflow = require_file(".github/workflows/model-release.yml").read_text(

@@ -70,7 +70,7 @@ jobs:
       - name: Verify immutable model release through the package downloader
         env:
           RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD: "0"
-          RECAPTCHA_SOLVER_CACHE_DIR: ${{ runner.temp }}/verified-model-cache
+          RECAPTCHA_SOLVER_MODEL_DIR: ${{ runner.temp }}/verified-model-cache
         run: node npm/recaptcha-solver/dist/postinstall.js
 
       - name: Refuse replacement of an npm version

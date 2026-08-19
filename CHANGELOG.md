@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.0 — 2026-08-19
+
+- Removed the `RECAPTCHA_SOLVER_CACHE_DIR` environment override. Use
+  `RECAPTCHA_SOLVER_MODEL_DIR` for a custom model location; otherwise the
+  package uses the platform default cache.
+- Added per-call Classification and Detection confidence overrides under the
+  public `confidence` option. Successful image-challenge results echo only the
+  overrides explicitly supplied by the caller.
+
 ## 0.1.5 — 2026-08-18
 
 - Added npm package keywords for improved registry discoverability.

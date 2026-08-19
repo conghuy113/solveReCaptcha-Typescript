@@ -18,12 +18,24 @@ import type {
   BrowserCookie,
   CaptchaType,
   CompletionReason,
+  SolveReCaptchaConfidence,
   SolveReCaptchaOptions,
   SolveReCaptchaResult,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 20;
+const DEFAULT_CLASSIFICATION_MIN_CONFIDENCE = 0.2;
+const DEFAULT_DETECTION_CONFIDENCE = 0.6;
+const CONFIDENCE_OPTION_KEYS = new Set([
+  "classificationMinConfidence",
+  "detectionConfidence",
+]);
+
+interface ResolvedConfidence {
+  classificationMinConfidence: number;
+  detectionConfidence: number;
+}
 
 export class SolverTimeoutError extends Error {
   constructor(message: string) {
@@ -82,6 +94,7 @@ export interface SolverDependencies {
     navigation: SolverNavigation,
     classification: ClassificationInference,
     detection: DetectionInference,
+    confidence: ResolvedConfidence,
   ): HandlerSolver;
   clock: SolverClock;
   defaultTimeoutMs: number;
@@ -123,9 +136,11 @@ const defaultDependencies: SolverDependencies = {
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
     });
   },
-  createHandlers(navigation, classification, detection): HandlerSolver {
+  createHandlers(navigation, classification, detection, confidence): HandlerSolver {
     return new CaptchaHandlers(navigation, classification, detection, {
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      minConfidence: confidence.classificationMinConfidence,
+      detectionConfidence: confidence.detectionConfidence,
     });
   },
   clock: systemClock,
@@ -146,6 +161,55 @@ export function validateSolveOptions(options: SolveReCaptchaOptions): void {
   if (typeof options.clickCheckbox !== "boolean") {
     throw new TypeError("clickCheckbox must be a boolean.");
   }
+  if (options.confidence !== undefined) {
+    if (
+      options.confidence === null ||
+      typeof options.confidence !== "object" ||
+      Array.isArray(options.confidence) ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(options.confidence))
+    ) {
+      throw new TypeError("confidence must be an object when provided.");
+    }
+    for (const key of Reflect.ownKeys(options.confidence)) {
+      if (typeof key !== "string" || !CONFIDENCE_OPTION_KEYS.has(key)) {
+        throw new TypeError(`Unsupported confidence option: ${String(key)}.`);
+      }
+    }
+    for (const [name, value] of [
+      ["classificationMinConfidence", options.confidence.classificationMinConfidence],
+      ["detectionConfidence", options.confidence.detectionConfidence],
+    ] as const) {
+      if (
+        value !== undefined &&
+        (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
+      ) {
+        throw new TypeError(`${name} must be a finite number between 0 and 1.`);
+      }
+    }
+  }
+}
+
+function resolveConfidence(options: SolveReCaptchaOptions): ResolvedConfidence {
+  return {
+    classificationMinConfidence:
+      options.confidence?.classificationMinConfidence ?? DEFAULT_CLASSIFICATION_MIN_CONFIDENCE,
+    detectionConfidence:
+      options.confidence?.detectionConfidence ?? DEFAULT_DETECTION_CONFIDENCE,
+  };
+}
+
+function reportedConfidence(options: SolveReCaptchaOptions): SolveReCaptchaConfidence | undefined {
+  const configured = options.confidence;
+  if (!configured) return undefined;
+  const reported: SolveReCaptchaConfidence = {
+    ...(configured.classificationMinConfidence === undefined
+      ? {}
+      : { classificationMinConfidence: configured.classificationMinConfidence }),
+    ...(configured.detectionConfidence === undefined
+      ? {}
+      : { detectionConfidence: configured.detectionConfidence }),
+  };
+  return Reflect.ownKeys(reported).length > 0 ? reported : undefined;
 }
 
 export function determineChallengeType(title: string): ImageChallengeType {
@@ -186,6 +250,7 @@ async function result(
   options: SolveReCaptchaOptions,
   startTime: number,
   clock: SolverClock,
+  confidence: SolveReCaptchaConfidence | undefined,
   captchaType: CaptchaType,
   attempts: number,
   completionReason: CompletionReason,
@@ -203,6 +268,7 @@ async function result(
     cookies: browserCookies(cookies),
     currentUrl,
     completionReason,
+    ...(confidence === undefined ? {} : { confidence }),
   };
 }
 
@@ -247,6 +313,8 @@ export async function solveReCaptchaWithDependencies(
   dependencies: SolverDependencies,
 ): Promise<SolveReCaptchaResult> {
   validateSolveOptions(options);
+  const resolvedConfidence = resolveConfidence(options);
+  const configuredConfidence = reportedConfidence(options);
   const startTime = dependencies.clock.now();
   const chrome = await dependencies.connectChrome(options.port);
   try {
@@ -273,6 +341,7 @@ export async function solveReCaptchaWithDependencies(
         options,
         startTime,
         dependencies.clock,
+        undefined,
         "no_challenge",
         0,
         token ? "token_found" : "checkbox_solved",
@@ -285,6 +354,7 @@ export async function solveReCaptchaWithDependencies(
       navigation,
       runtime.classification,
       runtime.detection,
+      resolvedConfidence,
     );
     let lastCaptchaType: CaptchaType = "selection_3x3";
 
@@ -323,6 +393,7 @@ export async function solveReCaptchaWithDependencies(
             options,
             startTime,
             dependencies.clock,
+            configuredConfidence,
             captchaType,
             attempt,
             completion.reason,
@@ -342,6 +413,7 @@ export async function solveReCaptchaWithDependencies(
         options,
         startTime,
         dependencies.clock,
+        configuredConfidence,
         lastCaptchaType,
         dependencies.maxAttempts,
         "token_found",
@@ -354,6 +426,7 @@ export async function solveReCaptchaWithDependencies(
         options,
         startTime,
         dependencies.clock,
+        configuredConfidence,
         lastCaptchaType,
         dependencies.maxAttempts,
         "checkbox_solved",

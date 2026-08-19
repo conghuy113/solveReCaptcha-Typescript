@@ -90,6 +90,35 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 | `targetUrl`     | `string`  | Full URL or stable URL fragment used to locate the already-open tab.      |
 | `port`          | `number`  | Chrome remote-debugging port on `127.0.0.1`. Must be between 1 and 65535. |
 | `clickCheckbox` | `boolean` | Whether to click the checkbox before handling an image challenge.         |
+| `confidence`    | `object`  | Optional per-call Classification and Detection confidence overrides.      |
+
+The optional `confidence` object accepts only:
+
+- `classificationMinConfidence` (default: `0.2`): minimum target-class score
+  required for each of the top three cells in a 3x3 Classification challenge.
+- `detectionConfidence` (default: `0.6`): minimum target-class score required
+  to retain a bounding box in a 4x4 Detection challenge before NMS.
+
+Each supplied value must be a finite number between `0` and `1`. Unknown
+properties and invalid values fail fast with `TypeError` before Chrome is
+connected. Example custom thresholds:
+
+```ts
+const result = await solveReCaptcha({
+  targetUrl: "https://example.com/signup",
+  port: 9222,
+  clickCheckbox: true,
+  confidence: {
+    classificationMinConfidence: 0.35,
+    detectionConfidence: 0.7,
+  },
+});
+```
+
+The configuration is scoped to that call. Increasing a threshold is more
+selective but may reload or miss more challenges; decreasing it accepts more
+predictions but can increase incorrect clicks. Scores from the two models are
+not directly comparable.
 
 ### Result
 
@@ -102,6 +131,9 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 - `attempts` and `timeTaken`: solve metrics.
 - `cookies`: cookies from the connected browser context.
 - `currentUrl`: final page URL.
+- `confidence`: present only after an image challenge when the caller supplied
+  at least one confidence override. It contains only the fields supplied by
+  the caller; internal fallback values are not returned.
 
 The promise rejects when input validation, model preparation, browser
 connection, model initialization, or challenge solving fails.
@@ -110,13 +142,135 @@ connection, model initialization, or challenge solving fails.
 
 | Variable                                 | Purpose                                                           |
 | ---------------------------------------- | ----------------------------------------------------------------- |
-| `RECAPTCHA_SOLVER_CACHE_DIR`             | Overrides the package cache root.                                 |
-| `RECAPTCHA_SOLVER_MODEL_DIR`             | Uses a directory that already contains both verified model files. |
+| `RECAPTCHA_SOLVER_MODEL_DIR`             | Selects the exact directory where both models are verified or downloaded. |
 | `RECAPTCHA_SOLVER_SKIP_MODEL_DOWNLOAD=1` | Skips the install-time download, useful for offline image builds. |
 
 For offline deployment, populate `RECAPTCHA_SOLVER_MODEL_DIR` from a trusted
 artifact source. Files are still checked against the package manifest before
 use.
+
+#### Configure a custom model directory before installation
+
+`RECAPTCHA_SOLVER_MODEL_DIR` is the exact directory in which the package looks
+for `recaptcha_classification_57k.onnx` and `yolo12x.onnx`. Existing files are
+verified against `model-manifest.json`; missing or invalid files are downloaded
+again during `npm install`. Use an absolute path and expose the same value to
+both the `npm install` process and the application process. Otherwise the
+application may look in a different directory and download the models again.
+
+The directory must be writable during installation and large enough for both
+models. The package creates it when necessary.
+
+##### Load the value from `.env`
+
+Create a `.env` file in the consumer project. For example, on Windows:
+
+```dotenv
+RECAPTCHA_SOLVER_MODEL_DIR=D:\recaptcha-solver-models
+```
+
+Or on Linux and macOS:
+
+```dotenv
+RECAPTCHA_SOLVER_MODEL_DIR=/opt/recaptcha-solver-models
+```
+
+npm does not automatically load `.env` for dependency lifecycle scripts. Load
+the file into the `npm install` process explicitly:
+
+```bash
+npx --yes dotenv-cli -e .env -- npm install @conghuy113/recaptcha-solver
+```
+
+Load the same file when starting the application. Node.js 20.9 and newer can do
+this without an application dependency:
+
+```bash
+node --env-file=.env dist/app.js
+```
+
+Alternatively, an application that already depends on `dotenv` can import
+`dotenv/config` before calling `solveReCaptcha()`. Keep a machine-independent
+`.env.example` in source control and normally exclude the real `.env` file.
+
+##### PowerShell
+
+To configure the current PowerShell session, create an absolute directory and
+set the process environment before running both installation and the app:
+
+```powershell
+$ModelDirectory = [IO.Path]::GetFullPath((Join-Path $PWD "recaptcha-solver-models"))
+New-Item -ItemType Directory -Force -Path $ModelDirectory | Out-Null
+$env:RECAPTCHA_SOLVER_MODEL_DIR = $ModelDirectory
+
+npm install @conghuy113/recaptcha-solver
+node .\dist\app.js
+```
+
+The value disappears when that PowerShell session closes. To save a fixed path
+for the current Windows user:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "RECAPTCHA_SOLVER_MODEL_DIR",
+  "D:\recaptcha-solver-models",
+  "User"
+)
+```
+
+Open a new terminal after setting a persistent user variable.
+
+##### Docker
+
+Set the variable before `npm ci` so the model files are downloaded into the
+chosen image directory, and preserve the same value at runtime:
+
+```dockerfile
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+ARG RECAPTCHA_SOLVER_MODEL_DIR=/opt/recaptcha-solver-models
+ENV RECAPTCHA_SOLVER_MODEL_DIR=${RECAPTCHA_SOLVER_MODEL_DIR}
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+CMD ["node", "dist/app.js"]
+```
+
+Do not mount an empty runtime volume over this directory: the mount would hide
+the model files baked into the image. If a persistent model volume is required,
+populate and verify that volume before starting the application.
+
+##### Docker Compose
+
+Docker Compose reads its project `.env` for interpolation, but the value must
+still be passed separately to the image build and the running container.
+
+Project `.env`:
+
+```dotenv
+RECAPTCHA_SOLVER_MODEL_DIR=/opt/recaptcha-solver-models
+```
+
+`compose.yaml`:
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      args:
+        RECAPTCHA_SOLVER_MODEL_DIR: ${RECAPTCHA_SOLVER_MODEL_DIR}
+    environment:
+      RECAPTCHA_SOLVER_MODEL_DIR: ${RECAPTCHA_SOLVER_MODEL_DIR}
+```
+
+The Dockerfile must declare the matching `ARG` and `ENV` shown above. A Compose
+`environment` entry alone applies only after the image has been built, so it
+cannot change the model destination used by `npm ci` during `docker build`.
 
 ## Architecture
 

@@ -1,3 +1,17 @@
+export interface SolveReCaptchaConfidenceOptions {
+  /** Minimum target-class score required for each of the top three 3x3 tiles. */
+  classificationMinConfidence?: number;
+  /** Minimum target-class score required to retain a 4x4 detection box. */
+  detectionConfidence?: number;
+}
+
+export interface SolveReCaptchaConfidence {
+  /** Classification threshold explicitly supplied for this solve. */
+  classificationMinConfidence?: number;
+  /** Detection threshold explicitly supplied for this solve. */
+  detectionConfidence?: number;
+}
+
 export interface SolveReCaptchaOptions {
   /** Full URL or stable URL fragment of the already-open target tab. */
   targetUrl: string;
@@ -5,6 +19,8 @@ export interface SolveReCaptchaOptions {
   port: number;
   /** Click the reCAPTCHA checkbox before solving the image challenge. */
   clickCheckbox: boolean;
+  /** Optional per-call confidence thresholds for image challenges. */
+  confidence?: SolveReCaptchaConfidenceOptions;
 }
 
 export interface BrowserCookie {
@@ -41,4 +57,6 @@ export interface SolveReCaptchaResult {
   cookies: BrowserCookie[];
   currentUrl: string;
   completionReason: CompletionReason;
+  /** Explicit threshold overrides, omitted when no model was used or no override was supplied. */
+  confidence?: SolveReCaptchaConfidence;
 }
