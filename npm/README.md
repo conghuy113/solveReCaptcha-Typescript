@@ -67,9 +67,3 @@ pnpm --dir npm/recaptcha-solver exec tsx scripts/solve-debug.ts
 
 `Debug/` is ignored by Git and is not included in the published package. The
 harness stores only token hashes and lengths, never raw response tokens.
-
-## Migration records
-
-- [Phase 1 — worker bridge](./PHASE_1.md)
-- [Phase 2 — verified model delivery](./PHASE_2.md)
-- [Phase 3 — native TypeScript migration](./PHASE_3.md)

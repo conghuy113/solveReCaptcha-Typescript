@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## 0.2.1 — 2026-08-28
 
 - Require a newly observed token and solved checkbox state before reporting a
   widget solve as successful; partial signals are now reported as `unverified`.
