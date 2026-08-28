@@ -8,4 +8,5 @@ export type {
   SolveReCaptchaConfidenceOptions,
   SolveReCaptchaOptions,
   SolveReCaptchaResult,
+  SolveVerification,
 } from "./types.js";

@@ -57,6 +57,10 @@ not expose it to an untrusted network.
 
 Open the target page in that Chrome instance before calling the library.
 
+The same CDP solve path supports Chrome with or without a visible window. In
+headless mode, use a non-zero viewport. Every checkbox, tile, and Verify action
+is confirmed by an observable widget state change and retried at most once.
+
 ## Quick start
 
 ```ts
@@ -69,6 +73,8 @@ const result = await solveReCaptcha({
 });
 
 console.log({
+  status: result.status,
+  verification: result.verification,
   token: result.token,
   completionReason: result.completionReason,
   attempts: result.attempts,
@@ -124,6 +130,9 @@ not directly comparable.
 
 `solveReCaptcha()` resolves to a typed object containing:
 
+- `status`: `success` when completion is confirmed, otherwise `unverified`.
+- `verification`: the evidence used for the status. A token alone is reported
+  as `token_observed`; it is not treated as a successful solve.
 - `token`: extracted response token, or `null` when completion does not require
   one.
 - `completionReason`: `token_found`, `url_changed`, or `checkbox_solved`.
@@ -134,6 +143,12 @@ not directly comparable.
 - `confidence`: present only after an image challenge when the caller supplied
   at least one confidence override. It contains only the fields supplied by
   the caller; internal fallback values are not returned.
+
+The solver snapshots all response tokens before the first interaction. With
+`clickCheckbox: true`, success requires both a newly observed token and the
+checkbox solved state. With `clickCheckbox: false`, navigation away from the
+pre-Verify URL is also a confirmed success. A new token without a solved widget
+resolves as `unverified` so callers can decide whether to continue or retry.
 
 The promise rejects when input validation, model preparation, browser
 connection, model initialization, or challenge solving fails.

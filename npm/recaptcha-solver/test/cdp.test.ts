@@ -38,6 +38,8 @@ class FakeTransport {
   readonly calls: Call[] = [];
   closed = false;
 
+  constructor(readonly options: { hitTarget?: boolean; usableViewport?: boolean } = {}) {}
+
   async call(
     method: string,
     params: Record<string, unknown> = {},
@@ -50,6 +52,14 @@ class FakeTransport {
     if (method === "Target.getTargets") return { targetInfos: [{ targetId: "captcha-frame", type: "iframe" }] };
     if (method === "Target.attachToTarget") return { sessionId: "captcha-session" };
     if (method === "Page.createIsolatedWorld") return { executionContextId: 17 };
+    if (method === "Page.getLayoutMetrics") {
+      return { cssLayoutViewport: this.options.usableViewport === false
+        ? { clientWidth: 0, clientHeight: 0 }
+        : { clientWidth: 1280, clientHeight: 720 } };
+    }
+    if (method === "DOM.getContentQuads") {
+      return { quads: [[10, 20, 50, 20, 50, 40, 10, 40]] };
+    }
     if (method === "DOM.describeNode") return { node: { frameId: "captcha-frame" } };
     if (method === "Network.getCookies") return { cookies: [{ name: "session", value: "cookie" }] };
     if (method === "Runtime.evaluate") {
@@ -66,6 +76,9 @@ class FakeTransport {
       if (declaration.includes("borderLeftWidth")) return { result: { type: "object", value: { x: 100, y: 200 } } };
       if (declaration.includes("getBoundingClientRect") && params.objectId === "captcha-tile") {
         return { result: { type: "object", value: { left: 10, top: 20, width: 40, height: 20 } } };
+      }
+      if (declaration.includes("elementFromPoint")) {
+        return { result: { type: "boolean", value: this.options.hitTarget !== false } };
       }
       if (declaration.includes("innerText")) return { result: { type: "string", value: "bus" } };
       return { result: { type: "number", value: 1 } };
@@ -143,6 +156,30 @@ test("OOPIF queries use child sessions while trusted clicks use the root session
   assert.ok(mouseCalls.every(([, , session]) => session === "page-session"));
   assert.equal(mouseCalls[0]?.[1].x, 130);
   assert.equal(mouseCalls[0]?.[1].y, 230);
+});
+
+test("trusted clicks reject covered targets and unusable headless viewports", async () => {
+  const coveredTransport = new FakeTransport({ hitTarget: false });
+  const coveredPage = await CdpPage.create(
+    coveredTransport as unknown as CdpTransport,
+    "page-target",
+    "page-session",
+  );
+  await assert.rejects(
+    coveredPage.clickObject("captcha-tile", coveredPage.rootContext),
+    /covered by another element/,
+  );
+
+  const viewportTransport = new FakeTransport({ usableViewport: false });
+  const viewportPage = await CdpPage.create(
+    viewportTransport as unknown as CdpTransport,
+    "page-target",
+    "page-session",
+  );
+  await assert.rejects(
+    viewportPage.clickObject("captcha-tile", viewportPage.rootContext),
+    /no usable layout viewport/,
+  );
 });
 
 test("browser JavaScript and cookies stay on the selected page session", async () => {

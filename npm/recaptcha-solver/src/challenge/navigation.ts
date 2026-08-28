@@ -23,6 +23,7 @@ export interface NavigationClock {
 export interface ChallengeNavigationOptions {
   defaultTimeoutMs?: number;
   pollIntervalMs?: number;
+  interactionAttempts?: number;
   clock?: NavigationClock;
 }
 
@@ -47,11 +48,19 @@ function positiveInterval(value: number, name: string): number {
   return value;
 }
 
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${name} must be a positive integer.`);
+  }
+  return value;
+}
+
 export class ChallengeNavigation {
   readonly #browser: CdpBrowser;
   readonly #clock: NavigationClock;
   readonly #defaultTimeoutMs: number;
   readonly #pollIntervalMs: number;
+  readonly #interactionAttempts: number;
 
   constructor(browser: CdpBrowser, options: ChallengeNavigationOptions = {}) {
     this.#browser = browser;
@@ -61,6 +70,10 @@ export class ChallengeNavigation {
       "defaultTimeoutMs",
     );
     this.#pollIntervalMs = positiveInterval(options.pollIntervalMs ?? 100, "pollIntervalMs");
+    this.#interactionAttempts = positiveInteger(
+      options.interactionAttempts ?? 2,
+      "interactionAttempts",
+    );
   }
 
   async checkboxFrame(timeoutMs = this.#defaultTimeoutMs * 2): Promise<CdpFrame | undefined> {
@@ -81,15 +94,42 @@ export class ChallengeNavigation {
   }
 
   async clickCheckbox(timeoutMs = this.#defaultTimeoutMs): Promise<void> {
-    const frame = await this.checkboxFrame(timeoutMs);
-    if (!frame) throw new ChallengeElementNotFoundError("Checkbox iframe not found.");
-    const checkbox = await frame.element(CHECKBOX_SELECTOR, timeoutMs);
-    if (!checkbox) throw new ChallengeElementNotFoundError("Checkbox element not found.");
-    await checkbox.click();
+    for (let attempt = 0; attempt < this.#interactionAttempts; attempt += 1) {
+      const frame = await this.checkboxFrame(timeoutMs);
+      if (!frame) throw new ChallengeElementNotFoundError("Checkbox iframe not found.");
+      const checkbox = await frame.element(CHECKBOX_SELECTOR, timeoutMs);
+      if (!checkbox) throw new ChallengeElementNotFoundError("Checkbox element not found.");
+      const before = await checkbox.interactionState();
+      await checkbox.click();
+      await this.#clock.sleep(Math.min(200, timeoutMs));
+      if (await this.isSolved(0) || await this.challengeFrame(0)) return;
+      const refreshedFrame = await this.checkboxFrame(0);
+      const refreshed = await refreshedFrame?.element(CHECKBOX_SELECTOR, 0);
+      if (refreshed && await refreshed.interactionState() !== before) return;
+    }
+    throw new ChallengeElementNotFoundError(
+      "Checkbox clicks were dispatched but produced no observable state change.",
+    );
   }
 
   async clickVerifyButton(timeoutMs = this.#defaultTimeoutMs): Promise<boolean> {
-    return this.#clickChallengeElement(VERIFY_BUTTON_SELECTOR, timeoutMs);
+    for (let attempt = 0; attempt < this.#interactionAttempts; attempt += 1) {
+      const frame = await this.challengeFrame(timeoutMs);
+      const button = await frame?.element(VERIFY_BUTTON_SELECTOR, timeoutMs);
+      if (!button) return false;
+      const beforeButton = await button.interactionState();
+      const beforeImages = await this.imageUrls(Math.min(1_000, timeoutMs));
+      await button.click();
+      await this.#clock.sleep(Math.min(200, timeoutMs));
+      if (await this.isSolved(0)) return true;
+      const refreshedFrame = await this.challengeFrame(0);
+      if (!refreshedFrame) return true;
+      const refreshedButton = await refreshedFrame.element(VERIFY_BUTTON_SELECTOR, 0);
+      if (!refreshedButton || await refreshedButton.interactionState() !== beforeButton) return true;
+      const afterImages = await this.imageUrls(Math.min(1_000, timeoutMs));
+      if (JSON.stringify(afterImages) !== JSON.stringify(beforeImages)) return true;
+    }
+    return false;
   }
 
   async clickReloadButton(timeoutMs = this.#defaultTimeoutMs): Promise<boolean> {
@@ -192,14 +232,28 @@ export class ChallengeNavigation {
   async clickTile(cell: number, timeoutMs = this.#defaultTimeoutMs): Promise<boolean> {
     if (!Number.isInteger(cell) || cell < 1) return false;
     try {
-      const frame = await this.challengeFrame(timeoutMs);
-      if (!frame) return false;
-      for (const selector of [".rc-image-tile-wrapper", "css:td.rc-imageselect-tile", TILE_SELECTOR]) {
+      const selectors = [".rc-image-tile-wrapper", "css:td.rc-imageselect-tile", TILE_SELECTOR];
+      for (let attempt = 0; attempt < this.#interactionAttempts; attempt += 1) {
         try {
-          const tile = (await frame.elements(selector))[cell - 1];
-          if (!tile) continue;
+          const frame = await this.challengeFrame(timeoutMs);
+          if (!frame) return false;
+          let selector: string | undefined;
+          let tile: CdpElement | undefined;
+          for (const candidate of selectors) {
+            tile = (await frame.elements(candidate))[cell - 1];
+            if (tile) {
+              selector = candidate;
+              break;
+            }
+          }
+          if (!tile || !selector) return false;
+          const before = await tile.interactionState();
           await tile.click();
-          return true;
+          await this.#clock.sleep(Math.min(300, timeoutMs));
+          const refreshedFrame = await this.challengeFrame(0);
+          if (!refreshedFrame) return true;
+          const refreshed = (await refreshedFrame.elements(selector))[cell - 1];
+          if (!refreshed || await refreshed.interactionState() !== before) return true;
         } catch (error) {
           if (!(error instanceof CdpError)) throw error;
         }

@@ -91,6 +91,7 @@ class FakeNavigation implements SolverNavigation {
   async clickVerifyButton(): Promise<boolean> { return this.verifyClicked; }
   async clickReloadButton(): Promise<boolean> { this.reloads += 1; return true; }
   async isSolved(): Promise<boolean> { return this.solved; }
+  async waitForVerifyResult(): Promise<boolean> { return this.solved; }
   async targetKeyword(): Promise<string | undefined> { return this.keyword; }
   async challengeTitle(): Promise<string> { return this.title; }
   async imageUrls(): Promise<string[]> { return []; }
@@ -190,11 +191,14 @@ test("determines the three supported image challenge types", () => {
   assert.equal(determineChallengeType("Select all images with buses"), "selection_3x3");
 });
 
-test("returns immediately when the checkbox produces a token", async () => {
+test("returns immediately when the checkbox produces a new token and solved state", async () => {
   const browser = new FakeBrowser();
-  browser.token = "token-value";
   const navigation = new FakeNavigation();
-  navigation.solved = true;
+  navigation.clickCheckbox = async () => {
+    navigation.checkboxClicks += 1;
+    navigation.solved = true;
+    browser.token = "token-value";
+  };
   const fixture = dependencies({ browser, navigation });
   const output = await solveReCaptchaWithDependencies(
     {
@@ -209,6 +213,8 @@ test("returns immediately when the checkbox produces a token", async () => {
     fixture.dependencies,
   );
   assert.equal(output.completionReason, "token_found");
+  assert.equal(output.status, "success");
+  assert.equal(output.verification, "widget_and_token_confirmed");
   assert.equal(output.captchaType, "no_challenge");
   assert.equal(output.token, "token-value");
   assert.equal("confidence" in output, false);
@@ -219,10 +225,13 @@ test("returns immediately when the checkbox produces a token", async () => {
 
 test("finishes reading result metadata before closing the CDP connection", async () => {
   const browser = new CloseAwareBrowser();
-  browser.token = "token-value";
   const chrome = new CloseAwareChrome(browser);
   const navigation = new FakeNavigation();
-  navigation.solved = true;
+  navigation.clickCheckbox = async () => {
+    navigation.checkboxClicks += 1;
+    navigation.solved = true;
+    browser.token = "token-value";
+  };
   const fixture = dependencies({ browser, navigation });
   const output = await solveReCaptchaWithDependencies(
     { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: true },
@@ -232,6 +241,8 @@ test("finishes reading result metadata before closing the CDP connection", async
     },
   );
   assert.equal(output.completionReason, "token_found");
+  assert.equal(output.status, "success");
+  assert.equal(output.verification, "widget_and_token_confirmed");
   assert.equal(output.currentUrl, "https://example.com/form");
   assert.deepEqual(output.cookies, [{ name: "session", value: "cookie", httpOnly: true }]);
   assert.equal(chrome.closed, true);
@@ -243,6 +254,7 @@ test("orchestrates an image handler and returns the verified token", async () =>
   const fixture = dependencies({ browser, navigation });
   navigation.clickVerifyButton = async () => {
     browser.token = "verified-token";
+    navigation.solved = true;
     return true;
   };
   let handlerConfidence: {
@@ -265,6 +277,8 @@ test("orchestrates an image handler and returns the verified token", async () =>
     },
   );
   assert.equal(output.completionReason, "token_found");
+  assert.equal(output.status, "success");
+  assert.equal(output.verification, "widget_and_token_confirmed");
   assert.equal(output.captchaType, "selection_3x3");
   assert.equal(output.attempts, 1);
   assert.equal(output.token, "verified-token");
@@ -291,6 +305,7 @@ test("integrates orchestration, target mapping, ranking, and tile clicks without
   };
   navigation.clickVerifyButton = async () => {
     browser.token = "integrated-token";
+    navigation.solved = true;
     return true;
   };
   const chrome = new FakeChrome(browser);
@@ -339,6 +354,8 @@ test("integrates orchestration, target mapping, ranking, and tile clicks without
   assert.equal(output.token, "integrated-token");
   assert.equal(output.captchaType, "selection_3x3");
   assert.equal(output.completionReason, "token_found");
+  assert.equal(output.status, "success");
+  assert.equal(output.verification, "widget_and_token_confirmed");
   assert.deepEqual(output.confidence, {
     classificationMinConfidence: 0.7,
     detectionConfidence: 0.77,
@@ -359,10 +376,44 @@ test("reports URL navigation as a successful completion without requiring a toke
     fixture.dependencies,
   );
   assert.equal(output.completionReason, "url_changed");
+  assert.equal(output.status, "success");
+  assert.equal(output.verification, "navigation_confirmed");
   assert.equal(output.token, null);
   assert.equal(output.currentUrl, "https://example.com/complete");
   assert.equal("confidence" in output, false);
   assert.equal(fixture.chrome.closed, true);
+});
+
+test("does not treat a baseline token as a newly solved response", async () => {
+  const browser = new FakeBrowser();
+  browser.token = "preexisting-token";
+  const navigation = new FakeNavigation();
+  navigation.solved = true;
+  const fixture = dependencies({ browser, navigation });
+  const output = await solveReCaptchaWithDependencies(
+    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: true },
+    fixture.dependencies,
+  );
+  assert.equal(output.status, "unverified");
+  assert.equal(output.verification, "widget_observed");
+  assert.equal(output.token, null);
+});
+
+test("reports a new token without solved widget state as unverified", async () => {
+  const browser = new FakeBrowser();
+  const navigation = new FakeNavigation();
+  const fixture = dependencies({ browser, navigation, maxAttempts: 1 });
+  navigation.clickVerifyButton = async () => {
+    browser.token = "new-but-unconfirmed-token";
+    return true;
+  };
+  const output = await solveReCaptchaWithDependencies(
+    { targetUrl: "https://example.com/form", port: 9222, clickCheckbox: false },
+    fixture.dependencies,
+  );
+  assert.equal(output.status, "unverified");
+  assert.equal(output.verification, "token_observed");
+  assert.equal(output.token, "new-but-unconfirmed-token");
 });
 
 test("reloads unknown targets and closes CDP when the solve times out", async () => {
