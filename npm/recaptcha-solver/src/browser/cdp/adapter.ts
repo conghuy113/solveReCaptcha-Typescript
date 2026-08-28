@@ -224,17 +224,64 @@ export class CdpPage {
 
   async clickObject(objectId: string, context: CdpContext): Promise<void> {
     await this.transport.call("DOM.scrollIntoViewIfNeeded", { objectId }, { sessionId: context.sessionId });
-    const geometry = objectValue(await this.callFunction(objectId, `function() {
-      if (!(this instanceof Element) || this.getClientRects().length === 0) return null;
-      const rect = this.getBoundingClientRect();
-      return {left: rect.left, top: rect.top, width: rect.width, height: rect.height};
-    }`, context));
-    if (!geometry) throw new CdpProtocolError("Runtime.callFunctionOn", "Element is not visible.");
-    const width = numberValue(geometry.width);
-    const height = numberValue(geometry.height);
-    if (width <= 0 || height <= 0) throw new CdpProtocolError("Runtime.callFunctionOn", "Element has an empty box.");
-    const x = context.offsetX + numberValue(geometry.left) + width / 2;
-    const y = context.offsetY + numberValue(geometry.top) + height / 2;
+    const metrics = await this.transport.call(
+      "Page.getLayoutMetrics",
+      {},
+      { sessionId: this.sessionId },
+    );
+    const viewport = objectValue(metrics.cssLayoutViewport) ?? objectValue(metrics.layoutViewport);
+    if (!viewport || numberValue(viewport.clientWidth) <= 0 || numberValue(viewport.clientHeight) <= 0) {
+      throw new CdpProtocolError("Page.getLayoutMetrics", "The page has no usable layout viewport.");
+    }
+
+    let localX: number | undefined;
+    let localY: number | undefined;
+    try {
+      const quadsResponse = await this.transport.call(
+        "DOM.getContentQuads",
+        { objectId },
+        { sessionId: context.sessionId },
+      );
+      const quads = Array.isArray(quadsResponse.quads) ? quadsResponse.quads : [];
+      const quad = quads.find((value): value is number[] =>
+        Array.isArray(value) && value.length === 8 && value.every((coordinate) =>
+          typeof coordinate === "number" && Number.isFinite(coordinate),
+        ),
+      );
+      if (quad) {
+        localX = ((quad[0] ?? 0) + (quad[2] ?? 0) + (quad[4] ?? 0) + (quad[6] ?? 0)) / 4;
+        localY = ((quad[1] ?? 0) + (quad[3] ?? 0) + (quad[5] ?? 0) + (quad[7] ?? 0)) / 4;
+      }
+    } catch (error) {
+      if (!(error instanceof CdpError)) throw error;
+    }
+    if (localX === undefined || localY === undefined) {
+      const geometry = objectValue(await this.callFunction(objectId, `function() {
+        if (!(this instanceof Element) || this.getClientRects().length === 0) return null;
+        const rect = this.getBoundingClientRect();
+        return {left: rect.left, top: rect.top, width: rect.width, height: rect.height};
+      }`, context));
+      if (!geometry) throw new CdpProtocolError("Runtime.callFunctionOn", "Element is not visible.");
+      const width = numberValue(geometry.width);
+      const height = numberValue(geometry.height);
+      if (width <= 0 || height <= 0) {
+        throw new CdpProtocolError("Runtime.callFunctionOn", "Element has an empty box.");
+      }
+      localX = numberValue(geometry.left) + width / 2;
+      localY = numberValue(geometry.top) + height / 2;
+    }
+    const hitTarget = await this.callFunction(objectId, `function(x, y) {
+      if (!(this instanceof Element) || this.getClientRects().length === 0) return false;
+      const hit = document.elementFromPoint(x, y);
+      if (!(hit instanceof Element)) return false;
+      const target = this.closest('td') || this;
+      return target === hit || target.contains(hit) || hit.contains(target);
+    }`, context, [localX, localY]);
+    if (hitTarget !== true) {
+      throw new CdpProtocolError("DOM.getContentQuads", "The click point is covered by another element.");
+    }
+    const x = context.offsetX + localX;
+    const y = context.offsetY + localY;
     const events: JsonObject[] = [
       { type: "mouseMoved", x, y },
       { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 },
@@ -312,6 +359,33 @@ export class CdpElement {
       }
     }, 2_000);
     return String(value ?? "");
+  }
+
+  async interactionState(): Promise<string> {
+    const resolved = await this.resolveObject();
+    if (!resolved) return "missing";
+    try {
+      const value = await this.#page.callFunction(
+        resolved.objectId,
+        `function() {
+          const target = this.closest('td') || this;
+          const image = this.matches('img') ? this : this.querySelector('img');
+          return JSON.stringify({
+            connected: Boolean(this.isConnected),
+            className: String(target.className || ''),
+            ariaChecked: target.getAttribute('aria-checked'),
+            ariaPressed: target.getAttribute('aria-pressed'),
+            ariaSelected: target.getAttribute('aria-selected'),
+            disabled: target.hasAttribute('disabled'),
+            imageSource: image ? String(image.getAttribute('src') || '') : ''
+          });
+        }`,
+        resolved.context,
+      );
+      return typeof value === "string" ? value : JSON.stringify(value ?? null);
+    } finally {
+      await this.#page.releaseObject(resolved.objectId, resolved.context);
+    }
   }
 
   async click(): Promise<void> {

@@ -35,8 +35,26 @@ Chrome must already be running with remote debugging enabled on the supplied
 loopback port. The package only attaches to that existing browser and never
 starts or closes Chrome.
 
+Visible and headless Chrome use the same CDP path. Headless Chrome must expose
+a usable, non-zero viewport. Checkbox, tile, and Verify input is accepted only
+after an observable widget state change, with at most one retry per action.
+
 Use this package only on systems and pages you own or are explicitly authorized
 to test.
+
+## Result verification
+
+The package snapshots response tokens before it interacts with the widget. A
+pre-existing token can never complete a solve. When `clickCheckbox` is `true`,
+`status: "success"` requires a new token and a solved checkbox. When it is
+`false`, navigation away from the pre-Verify URL is also a successful
+completion. A new token without solved widget state resolves with
+`status: "unverified"` and `verification: "token_observed"`.
+
+Existing result fields remain available. The additional `verification` field
+describes whether completion was confirmed by widget plus token, navigation,
+or only an observed client-side signal. Server-side token verification remains
+the caller's responsibility so this package does not consume a one-use token.
 
 ## Confidence options
 

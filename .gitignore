@@ -83,6 +83,7 @@ Ultralytics/
 
 # Temporary files
 tmp/
+Debug/
 *.tmp
 *.temp
 *.log

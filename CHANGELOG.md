@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.1 — 2026-08-28
+
+- Require a newly observed token and solved checkbox state before reporting a
+  widget solve as successful; partial signals are now reported as `unverified`.
+- Confirm CDP click effects and retry checkbox, image-tile, and Verify actions
+  once when the first interaction produces no observable state change.
+- Use viewport-aware CDP coordinates and hit testing for reliable interaction
+  in both headless and visible Chrome sessions.
+
 ## 0.2.0 — 2026-08-19
 
 - Removed the `RECAPTCHA_SOLVER_CACHE_DIR` environment override. Use
