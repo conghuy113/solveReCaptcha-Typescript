@@ -13,6 +13,8 @@ class FakeElement {
   readonly children = new Map<string, FakeElement[]>();
   readonly content: string;
   clicks = 0;
+  stateVersion = 0;
+  stateChangesAfterClicks = 1;
 
   constructor(options: { attributes?: Record<string, string>; content?: string } = {}) {
     this.attributes = options.attributes ?? {};
@@ -29,6 +31,11 @@ class FakeElement {
 
   async click(): Promise<void> {
     this.clicks += 1;
+    if (this.clicks >= this.stateChangesAfterClicks) this.stateVersion += 1;
+  }
+
+  async interactionState(): Promise<string> {
+    return JSON.stringify({ attributes: this.attributes, stateVersion: this.stateVersion });
   }
 
   async element(selector: string): Promise<FakeElement | undefined> {
@@ -161,6 +168,42 @@ test("reads challenge text, payload image URLs and clicks 1-indexed tiles", asyn
   assert.equal(elements.secondTile?.clicks, 1);
   assert.equal(await navigator.clickTile(0), false);
   assert.equal(await navigator.clickTile(3), false);
+});
+
+test("retries a tile once when the first dispatched click causes no state change", async () => {
+  const { browser, elements } = fixture();
+  const navigator = navigation(browser);
+  if (elements.secondTile) elements.secondTile.stateChangesAfterClicks = 2;
+  assert.equal(await navigator.clickTile(2), true);
+  assert.equal(elements.secondTile?.clicks, 2);
+});
+
+test("does not dispatch more than two clicks when a tile never changes state", async () => {
+  const { browser, elements } = fixture();
+  const navigator = navigation(browser);
+  if (elements.secondTile) elements.secondTile.stateChangesAfterClicks = Number.POSITIVE_INFINITY;
+  assert.equal(await navigator.clickTile(2), false);
+  assert.equal(elements.secondTile?.clicks, 2);
+});
+
+test("retries checkbox and verify interactions once when state does not change", async () => {
+  const checkboxFixture = fixture();
+  checkboxFixture.checkboxFrame.elementsBySelector.delete('css:span[aria-checked="true"]');
+  checkboxFixture.browser.elementsBySelector.set(
+    "t:iframe",
+    (checkboxFixture.browser.elementsBySelector.get("t:iframe") ?? []).filter(
+      (iframe) => !iframe.attributes.src?.includes("bframe"),
+    ),
+  );
+  checkboxFixture.elements.checkbox!.stateChangesAfterClicks = 2;
+  await navigation(checkboxFixture.browser).clickCheckbox();
+  assert.equal(checkboxFixture.elements.checkbox?.clicks, 2);
+
+  const verifyFixture = fixture();
+  verifyFixture.checkboxFrame.elementsBySelector.delete('css:span[aria-checked="true"]');
+  verifyFixture.elements.verify!.stateChangesAfterClicks = 2;
+  assert.equal(await navigation(verifyFixture.browser).clickVerifyButton(), true);
+  assert.equal(verifyFixture.elements.verify?.clicks, 2);
 });
 
 test("reports solved state and waits through the injected monotonic clock", async () => {

@@ -21,6 +21,7 @@ import type {
   SolveReCaptchaConfidence,
   SolveReCaptchaOptions,
   SolveReCaptchaResult,
+  SolveVerification,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -73,6 +74,7 @@ export interface SolverNavigation extends HandlerNavigation {
   clickVerifyButton(timeoutMs?: number): Promise<boolean>;
   clickReloadButton(timeoutMs?: number): Promise<boolean>;
   isSolved(timeoutMs?: number): Promise<boolean>;
+  waitForVerifyResult(timeoutMs?: number): Promise<boolean>;
   targetKeyword(timeoutMs?: number): Promise<string | undefined>;
   challengeTitle(timeoutMs?: number): Promise<string>;
 }
@@ -219,23 +221,37 @@ export function determineChallengeType(title: string): ImageChallengeType {
   return "selection_3x3";
 }
 
-async function readToken(browser: SolverBrowser): Promise<string | undefined> {
+async function readTokens(browser: SolverBrowser): Promise<string[]> {
   const value = await browser.runJs(`
+    const values = [];
     const elements = document.querySelectorAll(
       'textarea[name="g-recaptcha-response"], #g-recaptcha-response'
     );
     for (const element of elements) {
-      if (element && typeof element.value === 'string' && element.value) return element.value;
+      if (element && typeof element.value === 'string' && element.value.trim()) {
+        values.push(element.value.trim());
+      }
     }
     if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.getResponse === 'function') {
       try {
         const response = grecaptcha.getResponse();
-        if (response) return response;
+        if (typeof response === 'string' && response.trim()) values.push(response.trim());
       } catch (_) {}
     }
-    return '';
+    return [...new Set(values)];
   `).catch(() => undefined);
-  return typeof value === "string" && value ? value : undefined;
+  if (Array.isArray(value)) {
+    return [...new Set(value.filter((token): token is string =>
+      typeof token === "string" && token.length > 0,
+    ))];
+  }
+  // Keep the injected test/runtime boundary tolerant of older adapters that
+  // returned a single token value.
+  return typeof value === "string" && value ? [value] : [];
+}
+
+function newToken(tokens: readonly string[], baseline: ReadonlySet<string>): string | undefined {
+  return tokens.find((token) => !baseline.has(token));
 }
 
 function browserCookies(values: Array<Record<string, unknown>>): BrowserCookie[] {
@@ -253,13 +269,17 @@ async function result(
   confidence: SolveReCaptchaConfidence | undefined,
   captchaType: CaptchaType,
   attempts: number,
+  status: SolveReCaptchaResult["status"],
   completionReason: CompletionReason,
+  verification: SolveVerification,
   token?: string,
 ): Promise<SolveReCaptchaResult> {
   const [cookies, currentUrl] = await Promise.all([browser.cookies(), browser.url()]);
   return {
-    status: "success",
-    message: "reCAPTCHA solved successfully.",
+    status,
+    message: status === "success"
+      ? "reCAPTCHA solved successfully."
+      : "A reCAPTCHA signal was observed, but completion could not be fully verified.",
     clickCheckbox: options.clickCheckbox,
     token: token ?? null,
     captchaType,
@@ -268,6 +288,7 @@ async function result(
     cookies: browserCookies(cookies),
     currentUrl,
     completionReason,
+    verification,
     ...(confidence === undefined ? {} : { confidence }),
   };
 }
@@ -283,7 +304,9 @@ async function reloadChallenge(
 }
 
 interface Completion {
+  status: SolveReCaptchaResult["status"];
   reason: CompletionReason;
+  verification: SolveVerification;
   token?: string;
 }
 
@@ -292,18 +315,48 @@ async function waitForCompletion(
   navigation: SolverNavigation,
   clock: SolverClock,
   previousUrl: string,
+  baselineTokens: ReadonlySet<string>,
+  clickCheckbox: boolean,
   timeoutMs: number,
 ): Promise<Completion | undefined> {
   const deadline = clock.now() + timeoutMs;
+  let observedToken: string | undefined;
+  let observedSolved = false;
   while (clock.now() < deadline) {
     const currentUrl = await browser.url();
-    if (currentUrl && currentUrl !== previousUrl) return { reason: "url_changed" };
-    const token = await readToken(browser);
-    if (token) return { reason: "token_found", token };
-    if (await navigation.isSolved(Math.min(1_000, timeoutMs))) {
-      return { reason: "checkbox_solved" };
+    if (!clickCheckbox && currentUrl && currentUrl !== previousUrl) {
+      return {
+        status: "success",
+        reason: "url_changed",
+        verification: "navigation_confirmed",
+      };
+    }
+    observedToken ??= newToken(await readTokens(browser), baselineTokens);
+    observedSolved ||= await navigation.isSolved(Math.min(1_000, timeoutMs));
+    if (observedToken && observedSolved) {
+      return {
+        status: "success",
+        reason: "token_found",
+        verification: "widget_and_token_confirmed",
+        token: observedToken,
+      };
     }
     await clock.sleep(200);
+  }
+  if (observedToken) {
+    return {
+      status: "unverified",
+      reason: "token_found",
+      verification: "token_observed",
+      token: observedToken,
+    };
+  }
+  if (observedSolved) {
+    return {
+      status: "unverified",
+      reason: "checkbox_solved",
+      verification: "widget_observed",
+    };
   }
   return undefined;
 }
@@ -320,6 +373,8 @@ export async function solveReCaptchaWithDependencies(
   try {
     const browser = await chrome.selectTab(options.targetUrl);
     const navigation = dependencies.createNavigation(browser);
+    const baselineTokens = new Set(await readTokens(browser));
+    const initialUrl = await browser.url();
 
     if (options.clickCheckbox) {
       await dependencies.clock.sleep(800);
@@ -333,7 +388,19 @@ export async function solveReCaptchaWithDependencies(
     }
 
     if (await navigation.isSolved(2_000)) {
-      const token = await readToken(browser);
+      const completion = await waitForCompletion(
+        browser,
+        navigation,
+        dependencies.clock,
+        initialUrl,
+        baselineTokens,
+        options.clickCheckbox,
+        2_000,
+      ) ?? {
+        status: "unverified" as const,
+        reason: "checkbox_solved" as const,
+        verification: "widget_observed" as const,
+      };
       // Await inside the try block so finally cannot close CDP while result()
       // is still reading cookies and the current URL.
       return await result(
@@ -344,8 +411,10 @@ export async function solveReCaptchaWithDependencies(
         undefined,
         "no_challenge",
         0,
-        token ? "token_found" : "checkbox_solved",
-        token,
+        completion.status,
+        completion.reason,
+        completion.verification,
+        completion.token,
       );
     }
 
@@ -380,11 +449,14 @@ export async function solveReCaptchaWithDependencies(
           await dependencies.clock.sleep(500);
           continue;
         }
+        await navigation.waitForVerifyResult(dependencies.defaultTimeoutMs);
         const completion = await waitForCompletion(
           browser,
           navigation,
           dependencies.clock,
           urlBeforeVerify,
+          baselineTokens,
+          options.clickCheckbox,
           dependencies.defaultTimeoutMs,
         );
         if (completion) {
@@ -396,7 +468,9 @@ export async function solveReCaptchaWithDependencies(
             configuredConfidence,
             captchaType,
             attempt,
+            completion.status,
             completion.reason,
+            completion.verification,
             completion.token,
           );
         }
@@ -406,8 +480,9 @@ export async function solveReCaptchaWithDependencies(
       }
     }
 
-    const finalToken = await readToken(browser);
-    if (finalToken) {
+    const finalToken = newToken(await readTokens(browser), baselineTokens);
+    const finalSolved = await navigation.isSolved(2_000);
+    if (finalToken && finalSolved) {
       return await result(
         browser,
         options,
@@ -416,11 +491,13 @@ export async function solveReCaptchaWithDependencies(
         configuredConfidence,
         lastCaptchaType,
         dependencies.maxAttempts,
+        "success",
         "token_found",
+        "widget_and_token_confirmed",
         finalToken,
       );
     }
-    if (await navigation.isSolved(2_000)) {
+    if (finalToken || finalSolved) {
       return await result(
         browser,
         options,
@@ -429,7 +506,10 @@ export async function solveReCaptchaWithDependencies(
         configuredConfidence,
         lastCaptchaType,
         dependencies.maxAttempts,
-        "checkbox_solved",
+        "unverified",
+        finalToken ? "token_found" : "checkbox_solved",
+        finalToken ? "token_observed" : "widget_observed",
+        finalToken,
       );
     }
     throw new SolverTimeoutError(

@@ -40,6 +40,12 @@ export type CompletionReason =
   | "url_changed"
   | "checkbox_solved";
 
+export type SolveVerification =
+  | "widget_and_token_confirmed"
+  | "navigation_confirmed"
+  | "token_observed"
+  | "widget_observed";
+
 export type CaptchaType =
   | "dynamic_3x3"
   | "selection_3x3"
@@ -47,7 +53,7 @@ export type CaptchaType =
   | "no_challenge";
 
 export interface SolveReCaptchaResult {
-  status: "success";
+  status: "success" | "unverified";
   message: string;
   clickCheckbox: boolean;
   token: string | null;
@@ -57,6 +63,8 @@ export interface SolveReCaptchaResult {
   cookies: BrowserCookie[];
   currentUrl: string;
   completionReason: CompletionReason;
+  /** Evidence used to classify this result as successful or unverified. */
+  verification: SolveVerification;
   /** Explicit threshold overrides, omitted when no model was used or no override was supplied. */
   confidence?: SolveReCaptchaConfidence;
 }

@@ -55,6 +55,19 @@ RECAPTCHA_SOLVER_CDP_PORT=9222 \
 pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
 ```
 
+For authorized local diagnosis, the test-only debug harness captures before
+and after screenshots plus a sanitized result under `Debug/<timestamp>/`:
+
+```bash
+RECAPTCHA_SOLVER_DEBUG_APPROVED=YES \
+RECAPTCHA_SOLVER_TARGET_URL=https://example.com \
+RECAPTCHA_SOLVER_CDP_PORT=9222 \
+pnpm --dir npm/recaptcha-solver exec tsx scripts/solve-debug.ts
+```
+
+`Debug/` is ignored by Git and is not included in the published package. The
+harness stores only token hashes and lengths, never raw response tokens.
+
 ## Migration records
 
 - [Phase 1 — worker bridge](./PHASE_1.md)
