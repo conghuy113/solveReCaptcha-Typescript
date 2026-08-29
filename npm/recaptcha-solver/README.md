@@ -1,8 +1,7 @@
 # @conghuy113/recaptcha-solver
 
 AGPL-3.0 TypeScript package that solves reCAPTCHA in an already-open Chrome
-browser. Python and a hosted inference API are not required on the consumer
-machine.
+browser.
 
 The package entrypoint exports only `solveReCaptcha()` and its TypeScript
 types. Classification, detection, CDP, challenge handlers, and solve
