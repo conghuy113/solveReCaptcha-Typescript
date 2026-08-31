@@ -24,6 +24,22 @@ const result = await solveReCaptcha({
 console.log(result.token);
 ```
 
+Alternatively, connect directly to a reconnectable browser-level CDP
+WebSocket in the same existing browser:
+
+```ts
+const result = await solveReCaptcha({
+  targetUrl: "https://example.com/signup",
+  browserWSEndpoint: "ws://localhost:3000",
+  clickCheckbox: true,
+});
+```
+
+Direct WebSocket mode accepts only `ws://` endpoints on `localhost`,
+`127.0.0.1`, or `[::1]`. It does not support remote endpoints or `wss://`.
+`browserWSEndpoint` takes precedence when `port` is also supplied, with no
+automatic fallback to the port.
+
 CommonJS is supported too:
 
 ```js
@@ -31,8 +47,9 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 ```
 
 Chrome must already be running with remote debugging enabled on the supplied
-loopback port. The package only attaches to that existing browser and never
-starts or closes Chrome.
+loopback port, or be reconnectable through the supplied browser-level CDP
+WebSocket. The target tab must already exist. The package only attaches to that
+existing browser and never starts or closes Chrome.
 
 Visible and headless Chrome use the same CDP path. Headless Chrome must expose
 a usable, non-zero viewport. Checkbox, tile, and Verify input is accepted only

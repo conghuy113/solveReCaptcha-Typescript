@@ -3,7 +3,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { CdpConnectionError, CdpError, CdpProtocolError } from "./errors.js";
-import { CdpTransport } from "./transport.js";
+import { CdpTransport, validateBrowserWebSocketEndpoint } from "./transport.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -28,6 +28,10 @@ export interface CdpTarget {
 
 export interface CdpChromeOptions {
   host?: "127.0.0.1" | "localhost" | "::1";
+  timeoutMs?: number;
+}
+
+export interface CdpWebSocketOptions {
   timeoutMs?: number;
 }
 
@@ -76,16 +80,28 @@ export class CdpPage {
   readonly targetId: string;
   readonly sessionId: string;
   readonly #frameSessions = new Map<string, string>();
+  readonly #closeTransportOnClose: boolean;
   #closed = false;
 
-  private constructor(transport: CdpTransport, targetId: string, sessionId: string) {
+  private constructor(
+    transport: CdpTransport,
+    targetId: string,
+    sessionId: string,
+    closeTransportOnClose: boolean,
+  ) {
     this.transport = transport;
     this.targetId = targetId;
     this.sessionId = sessionId;
+    this.#closeTransportOnClose = closeTransportOnClose;
   }
 
-  static async create(transport: CdpTransport, targetId: string, sessionId: string): Promise<CdpPage> {
-    const page = new CdpPage(transport, targetId, sessionId);
+  static async create(
+    transport: CdpTransport,
+    targetId: string,
+    sessionId: string,
+    closeTransportOnClose = true,
+  ): Promise<CdpPage> {
+    const page = new CdpPage(transport, targetId, sessionId, closeTransportOnClose);
     await page.enableSession(sessionId);
     return page;
   }
@@ -112,7 +128,7 @@ export class CdpPage {
     } catch (error) {
       if (!(error instanceof CdpError)) throw error;
     } finally {
-      this.transport.close();
+      if (this.#closeTransportOnClose) this.transport.close();
     }
   }
 
@@ -524,6 +540,15 @@ export class CdpBrowser extends CdpDocument {
 
   static async connect(browserWebsocketUrl: string, targetId: string, timeoutMs = 10_000): Promise<CdpBrowser> {
     const transport = await CdpTransport.connect(browserWebsocketUrl, timeoutMs);
+    return CdpBrowser.attach(transport, targetId, true);
+  }
+
+  static async attach(
+    transport: CdpTransport,
+    targetId: string,
+    closeTransportOnClose = false,
+  ): Promise<CdpBrowser> {
+    let sessionId: string | undefined;
     try {
       const attached = await transport.call("Target.attachToTarget", { targetId, flatten: true });
       if (!attached.sessionId) {
@@ -532,9 +557,22 @@ export class CdpBrowser extends CdpDocument {
           `Chrome returned no session for page target ${targetId}.`,
         );
       }
-      return new CdpBrowser(await CdpPage.create(transport, targetId, String(attached.sessionId)));
+      sessionId = String(attached.sessionId);
+      return new CdpBrowser(await CdpPage.create(
+        transport,
+        targetId,
+        sessionId,
+        closeTransportOnClose,
+      ));
     } catch (error) {
-      transport.close();
+      if (sessionId !== undefined) {
+        try {
+          await transport.call("Target.detachFromTarget", { sessionId });
+        } catch (detachError) {
+          if (!(detachError instanceof CdpError)) throw detachError;
+        }
+      }
+      if (closeTransportOnClose) transport.close();
       throw error;
     }
   }
@@ -567,33 +605,37 @@ function isLoopback(hostname: string): boolean {
 }
 
 function assertLoopbackWebsocket(url: string): void {
-  let parsed: URL;
-  try { parsed = new URL(url); } catch (error) {
-    throw new CdpConnectionError(`Chrome returned an invalid browser WebSocket URL: ${url}`, { cause: error });
-  }
-  if ((parsed.protocol !== "ws:" && parsed.protocol !== "wss:") || !isLoopback(parsed.hostname)) {
-    throw new CdpConnectionError("Chrome returned a non-loopback browser WebSocket URL.");
-  }
+  validateBrowserWebSocketEndpoint(url);
 }
 
 export class CdpChrome {
-  readonly host: "127.0.0.1" | "localhost" | "::1";
-  readonly port: number;
+  readonly host: "127.0.0.1" | "localhost" | "::1" | undefined;
+  readonly port: number | undefined;
   readonly timeoutMs: number;
-  readonly address: string;
+  readonly address: string | undefined;
   #version: JsonObject;
   #browserWebsocketUrl: string;
+  #browserTransport: CdpTransport | undefined;
   #selectedTargetId: string | undefined;
   #selectedTab: CdpBrowser | undefined;
 
-  private constructor(port: number, host: "127.0.0.1" | "localhost" | "::1", timeoutMs: number, version: JsonObject) {
+  private constructor(
+    timeoutMs: number,
+    version: JsonObject,
+    browserWebsocketUrl: string,
+    port?: number,
+    host?: "127.0.0.1" | "localhost" | "::1",
+    browserTransport?: CdpTransport,
+  ) {
     this.host = host;
     this.port = port;
     this.timeoutMs = timeoutMs;
-    this.address = host === "::1" ? `[::1]:${String(port)}` : `${host}:${String(port)}`;
+    this.address = port === undefined || host === undefined
+      ? undefined
+      : host === "::1" ? `[::1]:${String(port)}` : `${host}:${String(port)}`;
     this.#version = version;
-    if (!version.webSocketDebuggerUrl) throw new CdpConnectionError("Chrome /json/version response has no browser WebSocket URL.");
-    this.#browserWebsocketUrl = String(version.webSocketDebuggerUrl);
+    this.#browserWebsocketUrl = browserWebsocketUrl;
+    this.#browserTransport = browserTransport;
     assertLoopbackWebsocket(this.#browserWebsocketUrl);
   }
 
@@ -604,9 +646,43 @@ export class CdpChrome {
     const timeoutMs = options.timeoutMs ?? 5_000;
     const address = host === "::1" ? `[::1]:${String(port)}` : `${host}:${String(port)}`;
     const version = await CdpChrome.requestJson(address, "/json/version", timeoutMs);
-    const chrome = new CdpChrome(port, host, timeoutMs, objectValue(version) ?? {});
+    const versionObject = objectValue(version) ?? {};
+    if (!versionObject.webSocketDebuggerUrl) {
+      throw new CdpConnectionError("Chrome /json/version response has no browser WebSocket URL.");
+    }
+    const chrome = new CdpChrome(
+      timeoutMs,
+      versionObject,
+      String(versionObject.webSocketDebuggerUrl),
+      port,
+      host,
+    );
     await chrome.listTabs();
     return chrome;
+  }
+
+  static async connectWebSocket(
+    browserWebsocketUrl: string,
+    options: CdpWebSocketOptions = {},
+  ): Promise<CdpChrome> {
+    const timeoutMs = options.timeoutMs ?? 5_000;
+    const transport = await CdpTransport.connect(browserWebsocketUrl, timeoutMs);
+    try {
+      const version = await transport.call("Browser.getVersion", {}, { timeoutMs });
+      const chrome = new CdpChrome(
+        timeoutMs,
+        { ...version, Browser: version.product },
+        browserWebsocketUrl,
+        undefined,
+        undefined,
+        transport,
+      );
+      await chrome.listTabs();
+      return chrome;
+    } catch (error) {
+      transport.close();
+      throw error;
+    }
   }
 
   static async requestJson(address: string, path: string, timeoutMs: number): Promise<unknown> {
@@ -636,18 +712,32 @@ export class CdpChrome {
   async currentUrl(): Promise<string> { return this.currentTab.url(); }
 
   async listTabs(): Promise<CdpTarget[]> {
-    const raw = await CdpChrome.requestJson(this.address, "/json/list", this.timeoutMs);
-    if (!Array.isArray(raw)) throw new CdpConnectionError("Chrome /json/list response is not an array.");
-    return raw.map(objectValue).filter((target): target is JsonObject => target?.type === "page" && Boolean(target.id)).map((target) => ({
-      id: String(target.id),
+    const raw = this.#browserTransport
+      ? (await this.#browserTransport.call("Target.getTargets", {}, { timeoutMs: this.timeoutMs })).targetInfos
+      : await CdpChrome.requestJson(this.address as string, "/json/list", this.timeoutMs);
+    if (!Array.isArray(raw)) {
+      throw new CdpConnectionError(this.#browserTransport
+        ? "Chrome Target.getTargets response has no targetInfos array."
+        : "Chrome /json/list response is not an array.");
+    }
+    return raw.map(objectValue).filter((target): target is JsonObject =>
+      target?.type === "page" && Boolean(target.targetId ?? target.id),
+    ).map((target) => ({
+      id: String(target.targetId ?? target.id),
       url: String(target.url ?? ""),
       title: String(target.title ?? ""),
-      active: String(target.id) === this.#selectedTargetId,
+      active: String(target.targetId ?? target.id) === this.#selectedTargetId,
     }));
   }
 
   async isAvailable(): Promise<boolean> {
-    const version = objectValue(await CdpChrome.requestJson(this.address, "/json/version", this.timeoutMs));
+    if (this.#browserTransport) {
+      const version = await this.#browserTransport.call("Browser.getVersion", {}, { timeoutMs: this.timeoutMs });
+      this.#version = { ...version, Browser: version.product };
+      await this.listTabs();
+      return true;
+    }
+    const version = objectValue(await CdpChrome.requestJson(this.address as string, "/json/version", this.timeoutMs));
     if (!version) throw new CdpConnectionError("Chrome /json/version response is not an object.");
     this.#version = version;
     if (version.webSocketDebuggerUrl) {
@@ -670,7 +760,9 @@ export class CdpChrome {
       }
     }
     if (this.#selectedTab) await this.#selectedTab.close();
-    this.#selectedTab = await CdpBrowser.connect(this.#browserWebsocketUrl, target.id, this.timeoutMs);
+    this.#selectedTab = this.#browserTransport
+      ? await CdpBrowser.attach(this.#browserTransport, target.id)
+      : await CdpBrowser.connect(this.#browserWebsocketUrl, target.id, this.timeoutMs);
     this.#selectedTargetId = target.id;
     return this.#selectedTab;
   }
@@ -679,5 +771,7 @@ export class CdpChrome {
     if (this.#selectedTab) await this.#selectedTab.close();
     this.#selectedTab = undefined;
     this.#selectedTargetId = undefined;
+    if (this.#browserTransport) this.#browserTransport.close();
+    this.#browserTransport = undefined;
   }
 }

@@ -15,8 +15,10 @@ export interface SolveReCaptchaConfidence {
 export interface SolveReCaptchaOptions {
   /** Full URL or stable URL fragment of the already-open target tab. */
   targetUrl: string;
-  /** Chrome remote-debugging port bound on 127.0.0.1. */
-  port: number;
+  /** Chrome remote-debugging port bound on loopback. Required when browserWSEndpoint is omitted. */
+  port?: number;
+  /** Loopback browser-level CDP WebSocket endpoint. Takes precedence over port when supplied. */
+  browserWSEndpoint?: string;
   /** Click the reCAPTCHA checkbox before solving the image challenge. */
   clickCheckbox: boolean;
   /** Optional per-call confidence thresholds for image challenges. */

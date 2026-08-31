@@ -126,8 +126,25 @@ test("transport exposes typed protocol errors", async () => {
   transport.close();
 });
 
-test("transport refuses non-loopback WebSocket endpoints before connecting", async () => {
+test("transport accepts only ws:// loopback WebSocket endpoints", async () => {
   await assert.rejects(CdpTransport.connect("ws://192.0.2.1/devtools/browser/id"), /loopback/);
+  await assert.rejects(CdpTransport.connect("wss://localhost/devtools/browser/id"), /must use ws/);
+  await assert.rejects(CdpTransport.connect("http://localhost:9222"), /must use ws/);
+});
+
+test("a shared page session detaches without closing its browser transport", async () => {
+  const transport = new FakeTransport();
+  const page = await CdpPage.create(
+    transport as unknown as CdpTransport,
+    "page-target",
+    "page-session",
+    false,
+  );
+  await page.close();
+  assert.equal(transport.closed, false);
+  assert.ok(transport.calls.some(([method, params]) =>
+    method === "Target.detachFromTarget" && params.sessionId === "page-session",
+  ));
 });
 
 test("OOPIF queries use child sessions while trusted clicks use the root session", async () => {
@@ -191,7 +208,7 @@ test("browser JavaScript and cookies stay on the selected page session", async (
   assert.equal(transport.calls.find(([method]) => method === "Network.getCookies")?.[2], "page-session");
 });
 
-test("Chrome discovery prefers an exact URL and rejects non-loopback WebSockets", async () => {
+test("port discovery prefers an exact URL and rejects non-loopback WebSockets", async () => {
   const originalRequest = CdpChrome.requestJson;
   const originalConnect = CdpBrowser.connect;
   let selectedTarget = "";
@@ -218,9 +235,66 @@ test("Chrome discovery prefers an exact URL and rejects non-loopback WebSockets"
     assert.equal(chrome.browserVersion, "Chrome/150.0");
     assert.equal((await chrome.listTabs()).length, 2);
     CdpChrome.requestJson = async () => ({ webSocketDebuggerUrl: "ws://192.0.2.1/devtools/browser/id" });
-    await assert.rejects(CdpChrome.connect(9222), /non-loopback/);
+    await assert.rejects(CdpChrome.connect(9222), /loopback/);
   } finally {
     CdpChrome.requestJson = originalRequest;
     CdpBrowser.connect = originalConnect;
+  }
+});
+
+test("direct WebSocket discovery and page attachment reuse one browser transport", async () => {
+  const originalTransportConnect = CdpTransport.connect;
+  const originalAttach = CdpBrowser.attach;
+  const calls: string[] = [];
+  let connectedUrl = "";
+  let attachedTarget = "";
+  let attachedTransport: CdpTransport | undefined;
+  let selectedPageClosed = false;
+  const transport = {
+    closed: false,
+    async call(method: string): Promise<Record<string, unknown>> {
+      calls.push(method);
+      if (method === "Browser.getVersion") return { product: "Chrome/150.0" };
+      if (method === "Target.getTargets") return {
+        targetInfos: [
+          { targetId: "worker", type: "service_worker", url: "https://example.com/sw.js" },
+          { targetId: "contains", type: "page", url: "https://example.com/signup?next=1", title: "Contains" },
+          { targetId: "exact", type: "page", url: "https://example.com/signup", title: "Exact" },
+        ],
+      };
+      throw new Error(`Unexpected CDP command: ${method}`);
+    },
+    close(): void { this.closed = true; },
+  };
+  CdpTransport.connect = async (url) => {
+    connectedUrl = url;
+    return transport as unknown as CdpTransport;
+  };
+  CdpBrowser.attach = async (activeTransport, targetId) => {
+    attachedTransport = activeTransport;
+    attachedTarget = targetId;
+    return {
+      closed: false,
+      ping: async () => undefined,
+      close: async () => { selectedPageClosed = true; },
+    } as unknown as CdpBrowser;
+  };
+  try {
+    const chrome = await CdpChrome.connectWebSocket("ws://localhost:3000");
+    await chrome.selectTab("https://example.com/signup");
+    assert.equal(connectedUrl, "ws://localhost:3000");
+    assert.equal(attachedTransport, transport);
+    assert.equal(attachedTarget, "exact");
+    assert.equal(chrome.browserVersion, "Chrome/150.0");
+    assert.equal(calls.filter((method) => method === "Browser.getVersion").length, 1);
+    assert.equal(calls.filter((method) => method === "Target.getTargets").length, 2);
+    await chrome.close();
+    assert.equal(selectedPageClosed, true);
+    assert.equal(transport.closed, true);
+    assert.equal(calls.includes("Browser.close"), false);
+    assert.equal(calls.includes("Target.closeTarget"), false);
+  } finally {
+    CdpTransport.connect = originalTransportConnect;
+    CdpBrowser.attach = originalAttach;
   }
 });

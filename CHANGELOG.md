@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 0.3.0 — 2026-08-31
+
+- Added `browserWSEndpoint` as an alternative to the loopback remote-debugging
+  port. When supplied, it takes precedence over `port` and connects directly
+  to the existing browser-level CDP WebSocket.
+- Restricted direct WebSocket endpoints to `ws://` on `localhost`,
+  `127.0.0.1`, or `[::1]`; remote and `wss://` endpoints are rejected.
+- Reused one browser WebSocket for target discovery and page attachment, and
+  disconnect without closing the existing browser or any tab.
+- Added WebSocket endpoint support to the CDP, live-solve, and debug smoke
+  scripts.
+
 ## 0.2.1 — 2026-08-28
 
 - Require a newly observed token and solved checkbox state before reporting a

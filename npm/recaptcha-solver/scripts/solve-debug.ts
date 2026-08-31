@@ -18,13 +18,16 @@ const targetUrl = process.env.RECAPTCHA_SOLVER_TARGET_URL?.trim();
 if (!targetUrl) throw new Error("RECAPTCHA_SOLVER_TARGET_URL is required.");
 const resolvedTargetUrl = targetUrl;
 const port = Number(process.env.RECAPTCHA_SOLVER_CDP_PORT ?? "9222");
+const browserWSEndpoint = process.env.RECAPTCHA_SOLVER_CDP_WS_ENDPOINT?.trim();
 const clickCheckbox = process.env.RECAPTCHA_SOLVER_CLICK_CHECKBOX !== "0";
 const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
 const debugDirectory = fileURLToPath(new URL(`../../../Debug/${timestamp}/`, import.meta.url));
 await mkdir(debugDirectory, { recursive: true });
 
 async function capture(name: string): Promise<void> {
-  const chrome = await CdpChrome.connect(port);
+  const chrome = browserWSEndpoint
+    ? await CdpChrome.connectWebSocket(browserWSEndpoint)
+    : await CdpChrome.connect(port);
   try {
     const browser = await chrome.selectTab(resolvedTargetUrl);
     const response = await browser.selectedPage.transport.call(
@@ -55,7 +58,9 @@ function sanitized(result: SolveReCaptchaResult): Record<string, unknown> {
 await capture("before");
 let record: Record<string, unknown>;
 try {
-  const result = await solveReCaptcha({ targetUrl: resolvedTargetUrl, port, clickCheckbox });
+  const result = await solveReCaptcha(browserWSEndpoint
+    ? { targetUrl: resolvedTargetUrl, port, browserWSEndpoint, clickCheckbox }
+    : { targetUrl: resolvedTargetUrl, port, clickCheckbox });
   record = { outcome: "resolved", result: sanitized(result) };
 } catch (error) {
   record = {

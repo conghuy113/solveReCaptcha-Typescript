@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { CdpChrome } from "./browser/cdp/index.js";
+import { CdpChrome, validateBrowserWebSocketEndpoint } from "./browser/cdp/index.js";
 import type { CdpBrowser, CdpFrame } from "./browser/cdp/index.js";
 import { LowConfidenceError } from "./challenge/errors.js";
 import { CaptchaHandlers } from "./challenge/handlers.js";
@@ -89,7 +89,7 @@ export interface SolverRuntime {
 }
 
 export interface SolverDependencies {
-  connectChrome(port: number): Promise<SolverChrome>;
+  connectChrome(options: SolveReCaptchaOptions): Promise<SolverChrome>;
   loadRuntime(): Promise<SolverRuntime>;
   createNavigation(browser: SolverBrowser): SolverNavigation;
   createHandlers(
@@ -129,8 +129,10 @@ function loadDefaultRuntime(): Promise<SolverRuntime> {
 }
 
 const defaultDependencies: SolverDependencies = {
-  async connectChrome(port): Promise<SolverChrome> {
-    return CdpChrome.connect(port);
+  async connectChrome(options): Promise<SolverChrome> {
+    return options.browserWSEndpoint !== undefined
+      ? CdpChrome.connectWebSocket(options.browserWSEndpoint)
+      : CdpChrome.connect(options.port as number);
   },
   loadRuntime: loadDefaultRuntime,
   createNavigation(browser): SolverNavigation {
@@ -157,8 +159,20 @@ export function validateSolveOptions(options: SolveReCaptchaOptions): void {
   if (typeof options.targetUrl !== "string" || !options.targetUrl.trim()) {
     throw new TypeError("targetUrl must be a non-empty string.");
   }
-  if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535) {
-    throw new TypeError("port must be an integer between 1 and 65535.");
+  if (options.browserWSEndpoint !== undefined) {
+    if (typeof options.browserWSEndpoint !== "string" || !options.browserWSEndpoint.trim()) {
+      throw new TypeError("browserWSEndpoint must be a non-empty string when provided.");
+    }
+    try {
+      validateBrowserWebSocketEndpoint(options.browserWSEndpoint);
+    } catch (error) {
+      throw new TypeError(
+        error instanceof Error ? error.message : "browserWSEndpoint is invalid.",
+        { cause: error },
+      );
+    }
+  } else if (!Number.isInteger(options.port) || (options.port as number) < 1 || (options.port as number) > 65_535) {
+    throw new TypeError("port must be an integer between 1 and 65535 when browserWSEndpoint is omitted.");
   }
   if (typeof options.clickCheckbox !== "boolean") {
     throw new TypeError("clickCheckbox must be a boolean.");
@@ -369,7 +383,7 @@ export async function solveReCaptchaWithDependencies(
   const resolvedConfidence = resolveConfidence(options);
   const configuredConfidence = reportedConfidence(options);
   const startTime = dependencies.clock.now();
-  const chrome = await dependencies.connectChrome(options.port);
+  const chrome = await dependencies.connectChrome(options);
   try {
     const browser = await chrome.selectTab(options.targetUrl);
     const navigation = dependencies.createNavigation(browser);

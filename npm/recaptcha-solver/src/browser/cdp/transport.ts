@@ -42,15 +42,31 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function validateLoopbackWebsocket(websocketUrl: string): void {
+function displayWebsocketUrl(websocketUrl: string): string {
+  try {
+    const parsed = new URL(websocketUrl);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "<invalid WebSocket URL>";
+  }
+}
+
+export function validateBrowserWebSocketEndpoint(websocketUrl: string): void {
   let parsed: URL;
   try {
     parsed = new URL(websocketUrl);
   } catch (error) {
-    throw new CdpConnectionError(`Invalid Chrome DevTools WebSocket URL: ${websocketUrl}`, { cause: error });
+    throw new CdpConnectionError("Invalid Chrome DevTools WebSocket URL.", { cause: error });
   }
   const loopback = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-  if ((parsed.protocol !== "ws:" && parsed.protocol !== "wss:") || !loopback.has(parsed.hostname)) {
+  if (parsed.protocol !== "ws:") {
+    throw new CdpConnectionError("CDP WebSocket endpoints must use ws://.");
+  }
+  if (!loopback.has(parsed.hostname)) {
     throw new CdpConnectionError("CDP WebSocket connections are restricted to the loopback interface.");
   }
 }
@@ -76,12 +92,13 @@ export class CdpTransport {
   }
 
   static async connect(websocketUrl: string, timeoutMs = 10_000): Promise<CdpTransport> {
-    validateLoopbackWebsocket(websocketUrl);
+    validateBrowserWebSocketEndpoint(websocketUrl);
+    const displayedUrl = displayWebsocketUrl(websocketUrl);
     const socket = await new Promise<WebSocket>((resolve, reject) => {
       const candidate = new WebSocket(websocketUrl, { handshakeTimeout: timeoutMs });
       const timer = setTimeout(() => {
         candidate.terminate();
-        reject(new CdpConnectionError(`Timed out opening Chrome DevTools WebSocket ${websocketUrl}.`));
+        reject(new CdpConnectionError(`Timed out opening Chrome DevTools WebSocket ${displayedUrl}.`));
       }, timeoutMs);
       candidate.once("open", () => {
         clearTimeout(timer);
@@ -89,7 +106,7 @@ export class CdpTransport {
       });
       candidate.once("error", (error) => {
         clearTimeout(timer);
-        reject(new CdpConnectionError(`Could not open Chrome DevTools WebSocket ${websocketUrl}: ${error.message}`, { cause: error }));
+        reject(new CdpConnectionError(`Could not open Chrome DevTools WebSocket ${displayedUrl}: ${error.message}`, { cause: error }));
       });
     });
     return new CdpTransport(socket, websocketUrl, timeoutMs);

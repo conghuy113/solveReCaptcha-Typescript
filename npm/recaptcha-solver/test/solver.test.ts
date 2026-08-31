@@ -156,6 +156,35 @@ test("validates the stable public options contract", () => {
   }));
   assert.throws(() => validateSolveOptions({ targetUrl: "", port: 9222, clickCheckbox: true }), /targetUrl/);
   assert.throws(() => validateSolveOptions({ targetUrl: "x", port: 0, clickCheckbox: true }), /port/);
+  assert.throws(() => validateSolveOptions({ targetUrl: "x", clickCheckbox: true }), /port/);
+  assert.doesNotThrow(() => validateSolveOptions({
+    targetUrl: "https://example.com",
+    browserWSEndpoint: "ws://localhost:3000",
+    clickCheckbox: true,
+  }));
+  assert.doesNotThrow(() => validateSolveOptions({
+    targetUrl: "https://example.com",
+    port: 0,
+    browserWSEndpoint: "ws://127.0.0.1:3000/devtools/browser/id",
+    clickCheckbox: true,
+  }));
+  assert.doesNotThrow(() => validateSolveOptions({
+    targetUrl: "https://example.com",
+    browserWSEndpoint: "ws://[::1]:3000/devtools/browser/id",
+    clickCheckbox: true,
+  }));
+  for (const browserWSEndpoint of [
+    "",
+    "http://localhost:3000",
+    "wss://localhost:3000",
+    "ws://192.0.2.1:3000",
+    "not-a-url",
+  ]) {
+    assert.throws(
+      () => validateSolveOptions({ targetUrl: "x", browserWSEndpoint, clickCheckbox: true }),
+      /browserWSEndpoint|WebSocket|loopback|ws:\/\//,
+    );
+  }
 
   const withInvalidConfidence = (confidence: unknown): SolveReCaptchaOptions => ({
     ...valid,

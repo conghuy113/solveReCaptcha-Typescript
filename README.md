@@ -16,7 +16,7 @@ the user's browser.
 - TypeScript types and an ESM entry point.
 - A single, promise-based `solveReCaptcha()` API.
 - Connects to an existing Chrome instance through a loopback remote-debugging
-  port.
+  port or browser-level CDP WebSocket endpoint.
 - Local ONNX inference; no hosted inference API.
 - Classification support for 3x3 challenges and detection support for 4x4
   challenges.
@@ -32,8 +32,8 @@ the user's browser.
   - Linux x64
   - macOS x64
   - macOS arm64
-- Google Chrome or another compatible Chromium browser started with remote
-  debugging enabled on a loopback port.
+- Google Chrome or another compatible Chromium browser exposed through a
+  loopback remote-debugging port or reconnectable browser-level CDP WebSocket.
 - Permission to automate and test the target website.
 
 ## Installation
@@ -83,6 +83,22 @@ console.log({
 });
 ```
 
+To connect directly to a reconnectable browser-level CDP WebSocket, supply
+`browserWSEndpoint`. The tab must already exist in that same browser:
+
+```ts
+const result = await solveReCaptcha({
+  targetUrl: "https://example.com/signup",
+  browserWSEndpoint: "ws://localhost:3000",
+  clickCheckbox: true,
+});
+```
+
+Only `ws://` endpoints on `localhost`, `127.0.0.1`, and `[::1]` are accepted.
+Remote endpoints and `wss://` are intentionally unsupported. When both
+`browserWSEndpoint` and `port` are supplied, the WebSocket endpoint takes
+precedence and the solver does not fall back to the port if it cannot connect.
+
 CommonJS projects can load the same API with `require()`:
 
 ```js
@@ -94,7 +110,8 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 | Option          | Type      | Description                                                               |
 | --------------- | --------- | ------------------------------------------------------------------------- |
 | `targetUrl`     | `string`  | Full URL or stable URL fragment used to locate the already-open tab.      |
-| `port`          | `number`  | Chrome remote-debugging port on `127.0.0.1`. Must be between 1 and 65535. |
+| `port`          | `number`  | Loopback Chrome remote-debugging port. Required unless `browserWSEndpoint` is supplied. |
+| `browserWSEndpoint` | `string` | Optional reconnectable browser-level CDP `ws://` endpoint on loopback; takes precedence over `port`. |
 | `clickCheckbox` | `boolean` | Whether to click the checkbox before handling an image challenge.         |
 | `confidence`    | `object`  | Optional per-call Classification and Detection confidence overrides.      |
 

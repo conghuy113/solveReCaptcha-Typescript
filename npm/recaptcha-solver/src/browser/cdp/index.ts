@@ -2,6 +2,6 @@
 
 export { CdpBrowser, CdpChrome, CdpElement, CdpFrame, CdpPage, toCssSelector } from "./adapter.js";
 export { CdpConnectionError, CdpError, CdpProtocolError } from "./errors.js";
-export { CdpTransport } from "./transport.js";
-export type { CdpChromeOptions, CdpContext, CdpTarget } from "./adapter.js";
+export { CdpTransport, validateBrowserWebSocketEndpoint } from "./transport.js";
+export type { CdpChromeOptions, CdpContext, CdpTarget, CdpWebSocketOptions } from "./adapter.js";
 export type { CdpCallOptions } from "./transport.js";
