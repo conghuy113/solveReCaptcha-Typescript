@@ -59,7 +59,7 @@ await capture("before");
 let record: Record<string, unknown>;
 try {
   const result = await solveReCaptcha(browserWSEndpoint
-    ? { targetUrl: resolvedTargetUrl, port, browserWSEndpoint, clickCheckbox }
+    ? { targetUrl: resolvedTargetUrl, browserWSEndpoint, clickCheckbox }
     : { targetUrl: resolvedTargetUrl, port, clickCheckbox });
   record = { outcome: "resolved", result: sanitized(result) };
 } catch (error) {

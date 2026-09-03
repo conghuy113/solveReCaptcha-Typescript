@@ -31,6 +31,16 @@ export interface CdpCallOptions {
   timeoutMs?: number;
 }
 
+export interface CdpCommandTransport {
+  readonly closed: boolean;
+  call(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: CdpCallOptions,
+  ): Promise<Record<string, unknown>>;
+  close(): void;
+}
+
 function decodeMessage(data: RawData): string {
   if (typeof data === "string") return data;
   if (Buffer.isBuffer(data)) return data.toString("utf8");
@@ -71,7 +81,7 @@ export function validateBrowserWebSocketEndpoint(websocketUrl: string): void {
   }
 }
 
-export class CdpTransport {
+export class CdpTransport implements CdpCommandTransport {
   readonly websocketUrl: string;
   readonly timeoutMs: number;
   readonly #socket: CdpSocket;

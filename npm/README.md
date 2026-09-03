@@ -12,9 +12,9 @@ the associated TypeScript types; inference and browser modules remain internal.
   classification.
 - TypeScript detection: YOLO letterbox preprocessing, multilingual COCO target
   mapping, output decoding, NMS, and 4x4 cell mapping.
-- TypeScript CDP: loopback port or direct browser-WebSocket discovery, flat
-  page/OOPIF sessions, DOM locators, JavaScript, cookies, and trusted mouse
-  clicks.
+- TypeScript CDP: shared Page connections, loopback port or direct
+  browser-WebSocket discovery, flat page/OOPIF sessions, DOM locators,
+  JavaScript, cookies, and trusted mouse clicks.
 - TypeScript challenge I/O: iframe discovery, checkbox/tile/control actions,
   challenge text and payload extraction, bounded image download, and in-memory
   dynamic-grid composition.
@@ -42,12 +42,12 @@ CDP_TARGET_URL=https://example.com CDP_PORT=9222 \
   pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:cdp
 ```
 
-For direct WebSocket mode, replace `CDP_PORT` with a reconnectable browser-level
-endpoint. The endpoint takes precedence if both variables are present:
+For direct WebSocket mode, replace `CDP_PORT` with an existing browser-level
+endpoint. Supply only one connection mode:
 
 ```bash
 CDP_TARGET_URL=https://example.com \
-CDP_WS_ENDPOINT=ws://localhost:3000 \
+CDP_WS_ENDPOINT=ws://localhost:3000/devtools/browser/ID \
   pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:cdp
 ```
 
@@ -65,8 +65,23 @@ RECAPTCHA_SOLVER_CDP_PORT=9222 \
 pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
 ```
 
-Set `RECAPTCHA_SOLVER_CDP_WS_ENDPOINT=ws://localhost:3000` instead of the port
-to run the live solve or debug harness through direct WebSocket mode.
+Set `RECAPTCHA_SOLVER_CDP_WS_ENDPOINT` to an existing browser-level endpoint,
+instead of setting the port, to run the live solve or debug harness through
+direct WebSocket mode. The Browserless allocation endpoint
+`ws://localhost:3000` is reserved for the Page-mode smoke path below.
+
+To exercise Puppeteer Page mode against a local Browserless instance, install
+`puppeteer-core` in the development workspace and run:
+
+```bash
+RECAPTCHA_SOLVER_LIVE_APPROVED=YES \
+RECAPTCHA_SOLVER_TARGET_URL=https://example.com \
+RECAPTCHA_SOLVER_CDP_WS_ENDPOINT=ws://localhost:3000 \
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:page
+```
+
+This smoke path passes the newly created Page directly to `solveReCaptcha()`;
+it never reads Browserless `/sessions` or opens a second solver WebSocket.
 
 For authorized local diagnosis, the test-only debug harness captures before
 and after screenshots plus a sanitized result under `Debug/<timestamp>/`:

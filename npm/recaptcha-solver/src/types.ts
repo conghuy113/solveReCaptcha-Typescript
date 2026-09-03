@@ -12,18 +12,54 @@ export interface SolveReCaptchaConfidence {
   detectionConfidence?: number;
 }
 
-export interface SolveReCaptchaOptions {
-  /** Full URL or stable URL fragment of the already-open target tab. */
-  targetUrl: string;
-  /** Chrome remote-debugging port bound on loopback. Required when browserWSEndpoint is omitted. */
-  port?: number;
-  /** Loopback browser-level CDP WebSocket endpoint. Takes precedence over port when supplied. */
-  browserWSEndpoint?: string;
+export interface PuppeteerPageLike {
+  /** Creates a CDP session attached to this page. */
+  createCDPSession(): Promise<unknown>;
+  /** Whether Puppeteer has observed this page closing. */
+  isClosed(): boolean;
+  /** The page's current URL. */
+  url(): string;
+}
+
+interface SolveReCaptchaCommonOptions {
   /** Click the reCAPTCHA checkbox before solving the image challenge. */
   clickCheckbox: boolean;
   /** Optional per-call confidence thresholds for image challenges. */
   confidence?: SolveReCaptchaConfidenceOptions;
 }
+
+export interface SolveReCaptchaPageOptions extends SolveReCaptchaCommonOptions {
+  /** Existing Puppeteer page whose current CDP connection will be reused. */
+  page: PuppeteerPageLike;
+  /** Optional URL assertion for the supplied page; never used to discover another tab. */
+  targetUrl?: string;
+  port?: never;
+  browserWSEndpoint?: never;
+}
+
+export interface SolveReCaptchaPortOptions extends SolveReCaptchaCommonOptions {
+  /** Full URL or stable URL fragment of the already-open target tab. */
+  targetUrl: string;
+  /** Chrome remote-debugging port bound on loopback. */
+  port: number;
+  page?: never;
+  browserWSEndpoint?: never;
+}
+
+export interface SolveReCaptchaWebSocketOptions extends SolveReCaptchaCommonOptions {
+  /** Full URL or stable URL fragment of the already-open target tab. */
+  targetUrl: string;
+  /** Loopback browser-level CDP WebSocket endpoint. */
+  browserWSEndpoint: string;
+  page?: never;
+  port?: never;
+}
+
+/** Exactly one connection mode must be supplied: page, browserWSEndpoint, or port. */
+export type SolveReCaptchaOptions =
+  | SolveReCaptchaPageOptions
+  | SolveReCaptchaPortOptions
+  | SolveReCaptchaWebSocketOptions;
 
 export interface BrowserCookie {
   name: string;

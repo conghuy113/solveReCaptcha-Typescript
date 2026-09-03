@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { CdpChrome, validateBrowserWebSocketEndpoint } from "./browser/cdp/index.js";
+import {
+  CdpChrome,
+  PuppeteerPageChrome,
+  validateBrowserWebSocketEndpoint,
+} from "./browser/cdp/index.js";
 import type { CdpBrowser, CdpFrame } from "./browser/cdp/index.js";
 import { LowConfidenceError } from "./challenge/errors.js";
 import { CaptchaHandlers } from "./challenge/handlers.js";
@@ -32,6 +36,7 @@ const CONFIDENCE_OPTION_KEYS = new Set([
   "classificationMinConfidence",
   "detectionConfidence",
 ]);
+const activePuppeteerPages = new WeakSet<object>();
 
 interface ResolvedConfidence {
   classificationMinConfidence: number;
@@ -64,7 +69,7 @@ export interface SolverBrowser {
 }
 
 export interface SolverChrome {
-  selectTab(targetUrl: string): Promise<SolverBrowser>;
+  selectTab(targetUrl?: string): Promise<SolverBrowser>;
   close(): Promise<void>;
 }
 
@@ -130,9 +135,11 @@ function loadDefaultRuntime(): Promise<SolverRuntime> {
 
 const defaultDependencies: SolverDependencies = {
   async connectChrome(options): Promise<SolverChrome> {
-    return options.browserWSEndpoint !== undefined
-      ? CdpChrome.connectWebSocket(options.browserWSEndpoint)
-      : CdpChrome.connect(options.port as number);
+    if (options.page !== undefined) return PuppeteerPageChrome.connect(options.page);
+    if (options.browserWSEndpoint !== undefined) {
+      return CdpChrome.connectWebSocket(options.browserWSEndpoint);
+    }
+    return CdpChrome.connect(options.port);
   },
   loadRuntime: loadDefaultRuntime,
   createNavigation(browser): SolverNavigation {
@@ -156,10 +163,38 @@ export function validateSolveOptions(options: SolveReCaptchaOptions): void {
   if (!options || typeof options !== "object") {
     throw new TypeError("solveReCaptcha options must be an object.");
   }
-  if (typeof options.targetUrl !== "string" || !options.targetUrl.trim()) {
-    throw new TypeError("targetUrl must be a non-empty string.");
+  const hasWebSocket = options.browserWSEndpoint !== undefined;
+  const hasPage = options.page !== undefined;
+  const hasPort = options.port !== undefined;
+  if (Number(hasWebSocket) + Number(hasPage) + Number(hasPort) !== 1) {
+    throw new TypeError(
+      "Exactly one of browserWSEndpoint, page, or port must be passed to solveReCaptcha.",
+    );
   }
-  if (options.browserWSEndpoint !== undefined) {
+  if (
+    (!hasPage && (typeof options.targetUrl !== "string" || !options.targetUrl.trim())) ||
+    (options.targetUrl !== undefined && (
+      typeof options.targetUrl !== "string" || !options.targetUrl.trim()
+    ))
+  ) {
+    throw new TypeError(
+      "targetUrl must be a non-empty string outside Page mode or when explicitly provided.",
+    );
+  }
+  if (hasPage) {
+    const page = options.page;
+    if (
+      page === null ||
+      typeof page !== "object" ||
+      typeof page.createCDPSession !== "function" ||
+      typeof page.isClosed !== "function" ||
+      typeof page.url !== "function"
+    ) {
+      throw new TypeError(
+        "page must be a compatible Puppeteer Page with createCDPSession(), isClosed(), and url().",
+      );
+    }
+  } else if (hasWebSocket) {
     if (typeof options.browserWSEndpoint !== "string" || !options.browserWSEndpoint.trim()) {
       throw new TypeError("browserWSEndpoint must be a non-empty string when provided.");
     }
@@ -171,8 +206,8 @@ export function validateSolveOptions(options: SolveReCaptchaOptions): void {
         { cause: error },
       );
     }
-  } else if (!Number.isInteger(options.port) || (options.port as number) < 1 || (options.port as number) > 65_535) {
-    throw new TypeError("port must be an integer between 1 and 65535 when browserWSEndpoint is omitted.");
+  } else if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535) {
+    throw new TypeError("port must be an integer between 1 and 65535 in port mode.");
   }
   if (typeof options.clickCheckbox !== "boolean") {
     throw new TypeError("clickCheckbox must be a boolean.");
@@ -380,11 +415,19 @@ export async function solveReCaptchaWithDependencies(
   dependencies: SolverDependencies,
 ): Promise<SolveReCaptchaResult> {
   validateSolveOptions(options);
+  const activePage = options.page;
+  if (activePage !== undefined) {
+    if (activePuppeteerPages.has(activePage)) {
+      throw new Error("The supplied Puppeteer page is already being used by another solveReCaptcha call.");
+    }
+    activePuppeteerPages.add(activePage);
+  }
   const resolvedConfidence = resolveConfidence(options);
   const configuredConfidence = reportedConfidence(options);
   const startTime = dependencies.clock.now();
-  const chrome = await dependencies.connectChrome(options);
+  let chrome: SolverChrome | undefined;
   try {
+    chrome = await dependencies.connectChrome(options);
     const browser = await chrome.selectTab(options.targetUrl);
     const navigation = dependencies.createNavigation(browser);
     const baselineTokens = new Set(await readTokens(browser));
@@ -530,7 +573,11 @@ export async function solveReCaptchaWithDependencies(
       `reCAPTCHA was not completed after ${String(dependencies.maxAttempts)} attempts.`,
     );
   } finally {
-    await chrome.close();
+    try {
+      if (chrome !== undefined) await chrome.close();
+    } finally {
+      if (activePage !== undefined) activePuppeteerPages.delete(activePage);
+    }
   }
 }
 

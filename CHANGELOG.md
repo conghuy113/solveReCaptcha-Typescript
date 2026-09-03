@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 0.4.0 — 2026-09-03
+
+- Added Puppeteer Page mode to reuse the caller's existing CDP connection and
+  exact page target.
+- Added structural `PuppeteerPageLike` types so Puppeteer remains optional for
+  port and direct-WebSocket consumers.
+- Made `page`, `browserWSEndpoint`, and `port` mutually exclusive connection
+  modes; `targetUrl` is optional and assertion-only in Page mode.
+- Added per-Page concurrency protection and ownership-safe cleanup that
+  detaches only solver-created page/OOPIF sessions.
+- Added Page-mode unit coverage, Browserless smoke coverage, and updated usage
+  documentation.
+
 ## 0.3.0 — 2026-08-31
 
 - Added `browserWSEndpoint` as an alternative to the loopback remote-debugging

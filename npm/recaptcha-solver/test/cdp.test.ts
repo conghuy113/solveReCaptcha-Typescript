@@ -10,9 +10,11 @@ import {
   CdpPage,
   CdpProtocolError,
   CdpTransport,
+  PuppeteerPageChrome,
   toCssSelector,
 } from "../src/browser/cdp/index.js";
-import type { CdpSocket } from "../src/browser/cdp/transport.js";
+import type { PuppeteerPageLike } from "../src/types.js";
+import type { CdpCommandTransport, CdpSocket } from "../src/browser/cdp/transport.js";
 
 class FakeSocket extends EventEmitter implements CdpSocket {
   readonly readyState = 1;
@@ -89,6 +91,74 @@ class FakeTransport {
   close(): void { this.closed = true; }
 }
 
+class FakePuppeteerConnection {
+  readonly calls: Call[] = [];
+  readonly sessions = new Map<string, FakePuppeteerSession>();
+
+  async send(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    this.calls.push([method, params, undefined]);
+    if (method === "Target.detachFromTarget") {
+      const session = this.sessions.get(String(params.sessionId));
+      if (session) session.detached = true;
+      this.sessions.delete(String(params.sessionId));
+      return {};
+    }
+    throw new Error(`Unexpected browser-level CDP command: ${method}`);
+  }
+
+  session(sessionId: string): FakePuppeteerSession | null {
+    return this.sessions.get(sessionId) ?? null;
+  }
+}
+
+class FakePuppeteerSession {
+  readonly calls: Call[] = [];
+  detached = false;
+
+  constructor(
+    readonly connectionValue: FakePuppeteerConnection | undefined,
+    readonly sessionId = "puppeteer-page-session",
+  ) {
+    connectionValue?.sessions.set(sessionId, this);
+  }
+
+  connection(): FakePuppeteerConnection | undefined { return this.connectionValue; }
+  id(): string { return this.sessionId; }
+
+  async detach(): Promise<void> {
+    this.detached = true;
+    this.connectionValue?.sessions.delete(this.sessionId);
+  }
+
+  async send(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    this.calls.push([method, params, this.sessionId]);
+    if (method.endsWith(".enable")) return {};
+    if (method === "Target.getTargetInfo") {
+      return { targetInfo: { targetId: "page-target", type: "page" } };
+    }
+    if (method === "Runtime.evaluate") {
+      return { result: { type: "string", value: "https://example.com/sign-in" } };
+    }
+    throw new Error(`Unexpected session CDP command: ${method}`);
+  }
+}
+
+class FakePuppeteerPage implements PuppeteerPageLike {
+  closed = false;
+  readonly connection = new FakePuppeteerConnection();
+  readonly session = new FakePuppeteerSession(this.connection);
+
+  async createCDPSession(): Promise<unknown> { return this.session; }
+  isClosed(): boolean { return this.closed; }
+  url(): string { return "https://example.com/sign-in"; }
+}
+
 test("translates the selector subset used by the solver", () => {
   assert.equal(toCssSelector("t:iframe"), "iframe");
   assert.equal(toCssSelector("tag:strong"), "strong");
@@ -147,6 +217,50 @@ test("a shared page session detaches without closing its browser transport", asy
   ));
 });
 
+test("Puppeteer Page mode reuses and preserves the caller's CDP connection", async () => {
+  const page = new FakePuppeteerPage();
+  const chrome = await PuppeteerPageChrome.connect(page);
+  const browser = await chrome.selectTab("/sign-in");
+  assert.equal(await browser.url(), "https://example.com/sign-in");
+  assert.equal(page.connection.calls.length, 0);
+  assert.ok(page.session.calls.some(([method]) => method === "Target.getTargetInfo"));
+
+  await chrome.close();
+
+  assert.equal(page.session.detached, true);
+  assert.deepEqual(page.connection.calls, [[
+    "Target.detachFromTarget",
+    { sessionId: "puppeteer-page-session" },
+    undefined,
+  ]]);
+});
+
+test("Puppeteer Page mode rejects closed pages, URL mismatches, and missing CDP connections", async () => {
+  const closedPage = new FakePuppeteerPage();
+  closedPage.closed = true;
+  await assert.rejects(PuppeteerPageChrome.connect(closedPage), /already closed/);
+
+  const wrongPage = new FakePuppeteerPage();
+  const wrongChrome = await PuppeteerPageChrome.connect(wrongPage);
+  try {
+    await assert.rejects(wrongChrome.selectTab("/sign-up"), /supplied Puppeteer page URL/);
+  } finally {
+    await wrongChrome.close();
+  }
+
+  const detachedSession = new FakePuppeteerSession(undefined);
+  const missingConnectionPage: PuppeteerPageLike = {
+    createCDPSession: async () => detachedSession,
+    isClosed: () => false,
+    url: () => "https://example.com/sign-in",
+  };
+  await assert.rejects(
+    PuppeteerPageChrome.connect(missingConnectionPage),
+    /does not expose an underlying CDP Connection/,
+  );
+  assert.equal(detachedSession.detached, true);
+});
+
 test("OOPIF queries use child sessions while trusted clicks use the root session", async () => {
   const transport = new FakeTransport();
   const page = await CdpPage.create(transport as unknown as CdpTransport, "page-target", "page-session");
@@ -173,6 +287,14 @@ test("OOPIF queries use child sessions while trusted clicks use the root session
   assert.ok(mouseCalls.every(([, , session]) => session === "page-session"));
   assert.equal(mouseCalls[0]?.[1].x, 130);
   assert.equal(mouseCalls[0]?.[1].y, 230);
+
+  await browser.close();
+  assert.ok(transport.calls.some(([method, params]) =>
+    method === "Target.detachFromTarget" && params.sessionId === "captcha-session",
+  ));
+  assert.ok(transport.calls.some(([method, params]) =>
+    method === "Target.detachFromTarget" && params.sessionId === "page-session",
+  ));
 });
 
 test("trusted clicks reject covered targets and unusable headless viewports", async () => {
@@ -248,7 +370,7 @@ test("direct WebSocket discovery and page attachment reuse one browser transport
   const calls: string[] = [];
   let connectedUrl = "";
   let attachedTarget = "";
-  let attachedTransport: CdpTransport | undefined;
+  let attachedTransport: CdpCommandTransport | undefined;
   let selectedPageClosed = false;
   const transport = {
     closed: false,

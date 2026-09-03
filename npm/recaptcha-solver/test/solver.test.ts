@@ -22,6 +22,16 @@ import type {
 } from "../src/solver.js";
 import type { SolveReCaptchaOptions } from "../src/types.js";
 
+const fakePuppeteerPage = {
+  createCDPSession: async (): Promise<unknown> => ({}),
+  isClosed: (): boolean => false,
+  url: (): string => "https://example.com/form",
+};
+
+function invalidOptions(value: unknown): SolveReCaptchaOptions {
+  return value as SolveReCaptchaOptions;
+}
+
 class FakeClock implements SolverClock {
   current = 0;
   now(): number { return this.current; }
@@ -156,23 +166,42 @@ test("validates the stable public options contract", () => {
   }));
   assert.throws(() => validateSolveOptions({ targetUrl: "", port: 9222, clickCheckbox: true }), /targetUrl/);
   assert.throws(() => validateSolveOptions({ targetUrl: "x", port: 0, clickCheckbox: true }), /port/);
-  assert.throws(() => validateSolveOptions({ targetUrl: "x", clickCheckbox: true }), /port/);
+  assert.throws(
+    () => validateSolveOptions(invalidOptions({ targetUrl: "x", clickCheckbox: true })),
+    /Exactly one/,
+  );
   assert.doesNotThrow(() => validateSolveOptions({
     targetUrl: "https://example.com",
     browserWSEndpoint: "ws://localhost:3000",
     clickCheckbox: true,
   }));
   assert.doesNotThrow(() => validateSolveOptions({
-    targetUrl: "https://example.com",
-    port: 0,
-    browserWSEndpoint: "ws://127.0.0.1:3000/devtools/browser/id",
+    page: fakePuppeteerPage,
     clickCheckbox: true,
   }));
   assert.doesNotThrow(() => validateSolveOptions({
-    targetUrl: "https://example.com",
-    browserWSEndpoint: "ws://[::1]:3000/devtools/browser/id",
+    page: fakePuppeteerPage,
+    targetUrl: "/form",
     clickCheckbox: true,
   }));
+  for (const value of [
+    { targetUrl: "x", port: 9222, browserWSEndpoint: "ws://localhost:3000", clickCheckbox: true },
+    { page: fakePuppeteerPage, port: 9222, clickCheckbox: true },
+    { page: fakePuppeteerPage, browserWSEndpoint: "ws://localhost:3000", clickCheckbox: true },
+  ]) {
+    assert.throws(
+      () => validateSolveOptions(invalidOptions(value)),
+      /Exactly one of browserWSEndpoint, page, or port/,
+    );
+  }
+  assert.throws(
+    () => validateSolveOptions(invalidOptions({ page: {}, clickCheckbox: true })),
+    /compatible Puppeteer Page/,
+  );
+  assert.throws(
+    () => validateSolveOptions({ page: fakePuppeteerPage, targetUrl: "", clickCheckbox: true }),
+    /targetUrl/,
+  );
   for (const browserWSEndpoint of [
     "",
     "http://localhost:3000",
@@ -218,6 +247,39 @@ test("determines the three supported image challenge types", () => {
   assert.equal(determineChallengeType("Select all squares with buses"), "square_4x4");
   assert.equal(determineChallengeType("Click verify once there are none left"), "dynamic_3x3");
   assert.equal(determineChallengeType("Select all images with buses"), "selection_3x3");
+});
+
+test("allows only one active solve per Puppeteer Page and releases the lock after failure", async () => {
+  const fixture = dependencies();
+  let releaseConnect!: () => void;
+  const connectGate = new Promise<void>((resolve) => { releaseConnect = resolve; });
+  const pageOptions: SolveReCaptchaOptions = {
+    page: fakePuppeteerPage,
+    clickCheckbox: true,
+  };
+  const first = solveReCaptchaWithDependencies(pageOptions, {
+    ...fixture.dependencies,
+    connectChrome: async () => {
+      await connectGate;
+      throw new Error("intentional connection failure");
+    },
+  });
+
+  await Promise.resolve();
+  await assert.rejects(
+    solveReCaptchaWithDependencies(pageOptions, fixture.dependencies),
+    /already being used by another solveReCaptcha call/,
+  );
+
+  releaseConnect();
+  await assert.rejects(first, /intentional connection failure/);
+  await assert.rejects(
+    solveReCaptchaWithDependencies(pageOptions, {
+      ...fixture.dependencies,
+      connectChrome: async () => { throw new Error("second connection failure"); },
+    }),
+    /second connection failure/,
+  );
 });
 
 test("returns immediately when the checkbox produces a new token and solved state", async () => {

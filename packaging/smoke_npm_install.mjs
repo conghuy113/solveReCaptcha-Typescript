@@ -75,7 +75,10 @@ try {
       dependencies: { [coreName]: `file:${coreTarball}` },
     }, null, 2),
   );
-  run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: tempRoot });
+  const installArguments = npmCommand.toLowerCase().includes("pnpm")
+    ? ["install", "--ignore-scripts"]
+    : ["install", "--ignore-scripts", "--no-audit", "--no-fund"];
+  run(npmCommand, installArguments, { cwd: tempRoot });
 
   const consumerPath = join(tempRoot, "consumer.mjs");
   writeFileSync(consumerPath, `
@@ -88,6 +91,25 @@ try {
       throw new Error("Expected public option validation to reject.");
     } catch (error) {
       if (!(error instanceof TypeError) || !String(error.message).includes("targetUrl")) throw error;
+    }
+    try {
+      await solver.solveReCaptcha({ page: {}, clickCheckbox: false });
+      throw new Error("Expected Puppeteer Page validation to reject.");
+    } catch (error) {
+      if (!(error instanceof TypeError) || !String(error.message).includes("compatible Puppeteer Page")) {
+        throw error;
+      }
+    }
+    try {
+      await solver.solveReCaptcha({
+        targetUrl: "https://example.com",
+        port: 9222,
+        browserWSEndpoint: "ws://localhost:3000",
+        clickCheckbox: false,
+      });
+      throw new Error("Expected mutually exclusive connection-mode validation to reject.");
+    } catch (error) {
+      if (!(error instanceof TypeError) || !String(error.message).includes("Exactly one of")) throw error;
     }
     console.log("Packed TypeScript public API loaded and validated without Python.");
   `);

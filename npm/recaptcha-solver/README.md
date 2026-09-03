@@ -8,6 +8,37 @@ types. Classification, detection, CDP, challenge handlers, and solve
 orchestration run directly in TypeScript and remain internal implementation
 details.
 
+## Puppeteer Page mode (recommended for Browserless)
+
+Pass the existing Puppeteer `Page` directly when another part of the
+application already owns the Browserless connection:
+
+```ts
+import puppeteer from "puppeteer-core";
+import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: "ws://localhost:3000",
+});
+const page = await browser.newPage();
+await page.goto("https://example.com/signup");
+
+const result = await solveReCaptcha({
+  page,
+  clickCheckbox: true,
+});
+
+await browser.close(); // The caller continues to own the browser.
+```
+
+Page mode reuses Puppeteer's existing CDP connection and exact page target. It
+does not query Browserless `/sessions`, open another WebSocket, search for a
+tab, close the page, or disconnect the browser. An optional `targetUrl` acts
+only as an assertion against the supplied page's current URL. Only one solve
+may use the same Page at a time.
+
+## Port mode
+
 ```ts
 import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
 
@@ -24,21 +55,23 @@ const result = await solveReCaptcha({
 console.log(result.token);
 ```
 
-Alternatively, connect directly to a reconnectable browser-level CDP
-WebSocket in the same existing browser:
+## Direct WebSocket mode
+
+Connect directly only when the URL identifies the existing browser, for
+example a reconnect endpoint or `/devtools/browser/<id>` URL:
 
 ```ts
 const result = await solveReCaptcha({
   targetUrl: "https://example.com/signup",
-  browserWSEndpoint: "ws://localhost:3000",
+  browserWSEndpoint: "ws://localhost:3000/devtools/browser/<id>",
   clickCheckbox: true,
 });
 ```
 
 Direct WebSocket mode accepts only `ws://` endpoints on `localhost`,
 `127.0.0.1`, or `[::1]`. It does not support remote endpoints or `wss://`.
-`browserWSEndpoint` takes precedence when `port` is also supplied, with no
-automatic fallback to the port.
+Exactly one of `page`, `browserWSEndpoint`, or `port` must be supplied. In port
+and WebSocket modes, `targetUrl` is required to locate the existing tab.
 
 CommonJS is supported too:
 
@@ -46,9 +79,9 @@ CommonJS is supported too:
 const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 ```
 
-Chrome must already be running with remote debugging enabled on the supplied
-loopback port, or be reconnectable through the supplied browser-level CDP
-WebSocket. The target tab must already exist. The package only attaches to that
+Chrome must already be represented by the supplied Page, running with remote
+debugging enabled on the supplied loopback port, or reconnectable through the
+supplied browser-level CDP WebSocket. The package only attaches to that
 existing browser and never starts or closes Chrome.
 
 Visible and headless Chrome use the same CDP path. Headless Chrome must expose

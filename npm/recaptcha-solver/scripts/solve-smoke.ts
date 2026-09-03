@@ -15,6 +15,6 @@ const port = Number(process.env.RECAPTCHA_SOLVER_CDP_PORT ?? "9222");
 const browserWSEndpoint = process.env.RECAPTCHA_SOLVER_CDP_WS_ENDPOINT?.trim();
 const clickCheckbox = process.env.RECAPTCHA_SOLVER_CLICK_CHECKBOX !== "0";
 const result = await solveReCaptcha(browserWSEndpoint
-  ? { targetUrl, port, browserWSEndpoint, clickCheckbox }
+  ? { targetUrl, browserWSEndpoint, clickCheckbox }
   : { targetUrl, port, clickCheckbox });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

@@ -1,6 +1,6 @@
 {
   "name": "@conghuy113/recaptcha-solver",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AGPL TypeScript client for solving reCAPTCHA in an already-open Chrome browser",
   "keywords": [
     "recaptcha",
@@ -55,6 +55,7 @@
     "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit",
     "smoke:cdp": "tsx scripts/cdp-smoke.ts",
+    "smoke:page": "tsx scripts/puppeteer-page-smoke.ts",
     "smoke:solve": "tsx scripts/solve-smoke.ts",
     "postinstall": "node ./dist/postinstall.js",
     "prepack": "tsup src/index.ts src/postinstall.ts --format esm,cjs --dts --sourcemap --clean"

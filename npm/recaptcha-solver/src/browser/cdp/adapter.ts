@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { CdpConnectionError, CdpError, CdpProtocolError } from "./errors.js";
 import { CdpTransport, validateBrowserWebSocketEndpoint } from "./transport.js";
+import type { CdpCommandTransport } from "./transport.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -76,7 +77,7 @@ export class CdpPage {
   static readonly OBJECT_GROUP = "recaptcha-solver";
   static readonly ISOLATED_WORLD = "recaptcha-solver";
 
-  readonly transport: CdpTransport;
+  readonly transport: CdpCommandTransport;
   readonly targetId: string;
   readonly sessionId: string;
   readonly #frameSessions = new Map<string, string>();
@@ -84,7 +85,7 @@ export class CdpPage {
   #closed = false;
 
   private constructor(
-    transport: CdpTransport,
+    transport: CdpCommandTransport,
     targetId: string,
     sessionId: string,
     closeTransportOnClose: boolean,
@@ -96,7 +97,7 @@ export class CdpPage {
   }
 
   static async create(
-    transport: CdpTransport,
+    transport: CdpCommandTransport,
     targetId: string,
     sessionId: string,
     closeTransportOnClose = true,
@@ -124,6 +125,14 @@ export class CdpPage {
     if (this.#closed) return;
     this.#closed = true;
     try {
+      for (const sessionId of new Set(this.#frameSessions.values())) {
+        try {
+          await this.transport.call("Target.detachFromTarget", { sessionId });
+        } catch (error) {
+          if (!(error instanceof CdpError)) throw error;
+        }
+      }
+      this.#frameSessions.clear();
       await this.transport.call("Target.detachFromTarget", { sessionId: this.sessionId });
     } catch (error) {
       if (!(error instanceof CdpError)) throw error;
@@ -544,7 +553,7 @@ export class CdpBrowser extends CdpDocument {
   }
 
   static async attach(
-    transport: CdpTransport,
+    transport: CdpCommandTransport,
     targetId: string,
     closeTransportOnClose = false,
   ): Promise<CdpBrowser> {
@@ -581,6 +590,14 @@ export class CdpBrowser extends CdpDocument {
     return new CdpBrowser(page);
   }
 
+  static async fromAttachedSession(
+    transport: CdpCommandTransport,
+    targetId: string,
+    sessionId: string,
+  ): Promise<CdpBrowser> {
+    return new CdpBrowser(await CdpPage.create(transport, targetId, sessionId, false));
+  }
+
   get closed(): boolean { return this.selectedPage.closed; }
   async url(): Promise<string> { return String(await this.selectedPage.evaluate("location.href") ?? ""); }
   async title(): Promise<string> { return String(await this.selectedPage.evaluate("document.title") ?? ""); }
@@ -615,7 +632,7 @@ export class CdpChrome {
   readonly address: string | undefined;
   #version: JsonObject;
   #browserWebsocketUrl: string;
-  #browserTransport: CdpTransport | undefined;
+  #browserTransport: CdpCommandTransport | undefined;
   #selectedTargetId: string | undefined;
   #selectedTab: CdpBrowser | undefined;
 
@@ -625,7 +642,7 @@ export class CdpChrome {
     browserWebsocketUrl: string,
     port?: number,
     host?: "127.0.0.1" | "localhost" | "::1",
-    browserTransport?: CdpTransport,
+    browserTransport?: CdpCommandTransport,
   ) {
     this.host = host;
     this.port = port;
