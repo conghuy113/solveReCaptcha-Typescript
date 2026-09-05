@@ -4,15 +4,24 @@
   "description": "AGPL TypeScript client for solving reCAPTCHA in an already-open Chrome browser",
   "keywords": [
     "recaptcha",
-    "captcha",
+    "recaptcha-v2",
     "recaptcha-solver",
+    "captcha",
+    "captcha-solver",
+    "image-captcha",
     "typescript",
+    "nodejs",
+    "puppeteer",
+    "browserless",
+    "chrome",
+    "headless-chrome",
+    "chrome-automation",
     "chrome-devtools-protocol",
     "cdp",
-    "onnx",
-    "computer-vision",
     "browser-automation",
-    "nodejs"
+    "computer-vision",
+    "onnx",
+    "onnxruntime"
   ],
   "license": "AGPL-3.0-only",
   "repository": {
