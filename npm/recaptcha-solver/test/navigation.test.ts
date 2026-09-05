@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { CdpBrowser } from "../src/browser/cdp/index.js";
+import { CdpConnectionError, CdpProtocolError, type CdpBrowser } from "../src/browser/cdp/index.js";
+import { CHECKBOX_SELECTOR, SOLVED_CHECKBOX_SELECTOR } from "../src/challenge/constants.js";
 import { ChallengeElementNotFoundError } from "../src/challenge/errors.js";
 import { ChallengeNavigation } from "../src/challenge/navigation.js";
 import type { NavigationClock } from "../src/challenge/navigation.js";
@@ -15,6 +16,10 @@ class FakeElement {
   clicks = 0;
   stateVersion = 0;
   stateChangesAfterClicks = 1;
+  visible = true;
+  async isVisible(): Promise<boolean> { return this.visible; }
+  async pin(): Promise<FakeElement> { return this; }
+  async frameId(): Promise<string> { return this.attributes.name ?? "fixture-frame"; }
 
   constructor(options: { attributes?: Record<string, string>; content?: string } = {}) {
     this.attributes = options.attributes ?? {};
@@ -88,12 +93,13 @@ function fixture(): {
 } {
   const browser = new FakeBrowser();
   const checkboxIframe = new FakeElement({
-    attributes: { title: "reCAPTCHA", src: "https://www.google.com/recaptcha/api2/anchor" },
+    attributes: { title: "reCAPTCHA", src: "https://www.google.com/recaptcha/api2/anchor", name: "a-widget" },
   });
   const challengeIframe = new FakeElement({
     attributes: {
       title: "recaptcha challenge expires in two minutes",
       src: "https://www.google.com/recaptcha/api2/bframe",
+      name: "c-widget",
     },
   });
   // Challenge-first ordering guards against mistaking its reCAPTCHA title for the anchor frame.
@@ -118,8 +124,8 @@ function fixture(): {
   const firstTile = new FakeElement();
   const secondTile = new FakeElement();
 
-  checkboxFrame.elementsBySelector.set(".recaptcha-checkbox-border", [checkbox]);
-  checkboxFrame.elementsBySelector.set('css:span[aria-checked="true"]', [solved]);
+  checkboxFrame.elementsBySelector.set(CHECKBOX_SELECTOR, [checkbox]);
+  checkboxFrame.elementsBySelector.set(SOLVED_CHECKBOX_SELECTOR, [solved]);
   challengeFrame.elementsBySelector.set("#recaptcha-verify-button", [verify]);
   challengeFrame.elementsBySelector.set("#recaptcha-reload-button", [reload]);
   challengeFrame.elementsBySelector.set(".rc-imageselect-payload", [payload]);
@@ -188,7 +194,7 @@ test("does not dispatch more than two clicks when a tile never changes state", a
 
 test("retries checkbox and verify interactions once when state does not change", async () => {
   const checkboxFixture = fixture();
-  checkboxFixture.checkboxFrame.elementsBySelector.delete('css:span[aria-checked="true"]');
+  checkboxFixture.checkboxFrame.elementsBySelector.delete(SOLVED_CHECKBOX_SELECTOR);
   checkboxFixture.browser.elementsBySelector.set(
     "t:iframe",
     (checkboxFixture.browser.elementsBySelector.get("t:iframe") ?? []).filter(
@@ -200,7 +206,7 @@ test("retries checkbox and verify interactions once when state does not change",
   assert.equal(checkboxFixture.elements.checkbox?.clicks, 2);
 
   const verifyFixture = fixture();
-  verifyFixture.checkboxFrame.elementsBySelector.delete('css:span[aria-checked="true"]');
+  verifyFixture.checkboxFrame.elementsBySelector.delete(SOLVED_CHECKBOX_SELECTOR);
   verifyFixture.elements.verify!.stateChangesAfterClicks = 2;
   assert.equal(await navigation(verifyFixture.browser).clickVerifyButton(), true);
   assert.equal(verifyFixture.elements.verify?.clicks, 2);
@@ -228,4 +234,139 @@ test("returns safe empty values when challenge elements are absent", async () =>
   assert.equal(await navigator.challengeTitle(0), "");
   assert.deepEqual(await navigator.imageUrls(0), []);
   await assert.rejects(navigator.clickCheckbox(0), ChallengeElementNotFoundError);
+});
+
+function prependAnchor(browser: FakeBrowser, name: string, document = new FakeDocument()): FakeElement {
+  const owner = new FakeElement({ attributes: {
+    name, title: "reCAPTCHA", src: "https://www.google.com/recaptcha/api2/anchor",
+  } });
+  browser.frames.set(owner, document);
+  browser.elementsBySelector.set("t:iframe", [owner, ...browser.elementsBySelector.get("t:iframe") ?? []]);
+  return owner;
+}
+
+test("skips an empty anchor and hidden owners or controls before the usable checkbox", async () => {
+  const { browser, elements } = fixture();
+  prependAnchor(browser, "a-empty");
+  const hiddenDocument = new FakeDocument();
+  const hiddenCheckbox = new FakeElement();
+  hiddenCheckbox.visible = false;
+  hiddenDocument.elementsBySelector.set(CHECKBOX_SELECTOR, [hiddenCheckbox]);
+  prependAnchor(browser, "a-hidden-control", hiddenDocument);
+  const hiddenOwner = prependAnchor(browser, "a-hidden-owner");
+  hiddenOwner.visible = false;
+  browser.frames.get(hiddenOwner)!.element = async () => { throw new Error("Hidden iframe must not be queried"); };
+  await navigation(browser).clickCheckbox();
+  assert.equal(elements.checkbox?.clicks, 1);
+  assert.equal(hiddenCheckbox.clicks, 0);
+});
+
+test("finds an enterprise anchor inside another visible iframe without relying on its title", async () => {
+  const { browser, checkboxFrame, elements } = fixture();
+  const anchor = browser.elementsBySelector.get("t:iframe")![1]!;
+  anchor.attributes.title = "";
+  anchor.attributes.src = "https://www.recaptcha.net/recaptcha/enterprise/anchor?k=fixture";
+  const wrapper = new FakeElement({ attributes: { src: "https://example.com/embedded-form" } });
+  const document = new FakeDocument();
+  document.elementsBySelector.set("t:iframe", [anchor]);
+  browser.frames.set(wrapper, document);
+  browser.elementsBySelector.set("t:iframe", [wrapper]);
+  const navigator = navigation(browser);
+  assert.equal(await navigator.checkboxFrame(), checkboxFrame);
+  await navigator.clickCheckbox();
+  assert.equal(elements.checkbox?.clicks, 1);
+});
+
+test("prefers an unchecked widget over a previously solved checkbox", async () => {
+  const { browser, elements } = fixture();
+  const solvedDocument = new FakeDocument();
+  const previous = new FakeElement({ attributes: { "aria-checked": "true" } });
+  solvedDocument.elementsBySelector.set(CHECKBOX_SELECTOR, [previous]);
+  prependAnchor(browser, "a-previous", solvedDocument);
+  await navigation(browser).clickCheckbox();
+  assert.equal(previous.clicks, 0);
+  assert.equal(elements.checkbox?.clicks, 1);
+});
+
+test("polls DOM readiness across all candidates instead of waiting only in the first frame", async () => {
+  const { browser, checkboxFrame, elements } = fixture();
+  prependAnchor(browser, "a-empty");
+  checkboxFrame.elementsBySelector.delete(CHECKBOX_SELECTOR);
+  const clock = new FakeClock();
+  const originalSleep = clock.sleep.bind(clock);
+  clock.sleep = async (ms) => {
+    await originalSleep(ms);
+    if (clock.current >= 20) checkboxFrame.elementsBySelector.set(CHECKBOX_SELECTOR, [elements.checkbox!]);
+  };
+  await navigation(browser, clock).clickCheckbox(100);
+  assert.equal(elements.checkbox?.clicks, 1);
+  assert.deepEqual(clock.sleeps.slice(0, 2), [10, 10]);
+});
+
+test("a frame access failure does not prevent selecting a later healthy widget", async () => {
+  const { browser, elements } = fixture();
+  const broken = new FakeDocument();
+  broken.element = async () => { throw new CdpProtocolError("Page.createIsolatedWorld", "Frame detached"); };
+  prependAnchor(browser, "a-broken", broken);
+  await navigation(browser).clickCheckbox();
+  assert.equal(elements.checkbox?.clicks, 1);
+});
+
+test("timeout preserves the frame protocol error as the checkbox failure cause", async () => {
+  const browser = new FakeBrowser();
+  const broken = new FakeDocument();
+  const failure = new CdpProtocolError("Page.createIsolatedWorld", "Frame not available");
+  broken.element = async () => { throw failure; };
+  prependAnchor(browser, "a-broken", broken);
+  await assert.rejects(navigation(browser).clickCheckbox(0), (error: unknown) => {
+    assert.ok(error instanceof ChallengeElementNotFoundError);
+    assert.equal(error.cause, failure);
+    assert.match(error.message, /Page.createIsolatedWorld/);
+    return true;
+  });
+});
+
+test("a lost browser connection fails immediately instead of reporting a missing checkbox", async () => {
+  const browser = new FakeBrowser();
+  const failure = new CdpConnectionError("Connection closed");
+  browser.elements = async () => { throw failure; };
+  const clock = new FakeClock();
+  const navigator = navigation(browser, clock);
+  await assert.rejects(navigator.clickCheckbox(), error => error === failure);
+  await assert.rejects(navigator.isSolved(), error => error === failure);
+  assert.deepEqual(clock.sleeps, []);
+});
+
+test("completion stays with the chosen widget when another solved anchor appears first", async () => {
+  const { browser, checkboxFrame } = fixture();
+  checkboxFrame.elementsBySelector.delete(SOLVED_CHECKBOX_SELECTOR);
+  const navigator = navigation(browser);
+  assert.equal(await navigator.checkboxFrame(), checkboxFrame);
+  const other = new FakeDocument();
+  other.elementsBySelector.set(CHECKBOX_SELECTOR, [new FakeElement()]);
+  other.elementsBySelector.set(SOLVED_CHECKBOX_SELECTOR, [new FakeElement()]);
+  prependAnchor(browser, "a-other", other);
+  assert.equal(await navigator.isSolved(0), false);
+  checkboxFrame.elementsBySelector.delete(CHECKBOX_SELECTOR);
+  assert.equal(await navigator.isSolved(0), false, "must not switch to an unrelated widget after removal");
+});
+
+test("reacquires a replaced iframe belonging to the selected widget", async () => {
+  const { browser, checkboxFrame } = fixture();
+  const navigator = navigation(browser);
+  await navigator.checkboxFrame();
+  checkboxFrame.elementsBySelector.clear();
+  const replacement = new FakeDocument();
+  replacement.elementsBySelector.set(CHECKBOX_SELECTOR, [new FakeElement()]);
+  replacement.elementsBySelector.set(SOLVED_CHECKBOX_SELECTOR, [new FakeElement()]);
+  prependAnchor(browser, "a-widget", replacement);
+  assert.equal(await navigator.isSolved(0), true);
+});
+
+test("ignores hidden and empty challenge frames until a visible Verify control exists", async () => {
+  const { browser, challengeFrame } = fixture();
+  const empty = new FakeElement({ attributes: { src: "https://www.google.com/recaptcha/api2/bframe" } });
+  browser.frames.set(empty, new FakeDocument());
+  browser.elementsBySelector.set("t:iframe", [empty, ...browser.elementsBySelector.get("t:iframe")!]);
+  assert.equal(await navigation(browser).challengeFrame(0), challengeFrame);
 });

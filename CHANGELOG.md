@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here.
 
+## 0.5.0 — 2026-09-05
+
+- Accept remote `wss://` browser-level CDP endpoints with normal TLS and
+  hostname verification, preserving authentication query parameters.
+- Keep unencrypted `ws://` and port-discovered endpoints on loopback; use a
+  30-second default connection/command timeout for direct WSS connections.
+- Redact credentials and reconnect paths from WebSocket connection errors;
+  retain network/TLS error codes and HTTP handshake statuses.
+- Explain Browserless launch versus reconnect endpoints and preserve the
+  existing Puppeteer Page workflow for continued browser ownership.
+- Add real TLS transport tests and Chrome smoke coverage through a local WSS
+  proxy, including page usability after solver success and failure.
+
+- Find a visible, ready `#recaptcha-anchor` across nested frames instead of
+  selecting the first iframe with a reCAPTCHA title. Prefer unchecked widgets
+  and skip hidden, empty, and inactive frames.
+- Keep checkbox frame identity across sibling DOM changes, and reacquire a
+  replacement with the same iframe name without switching to another widget.
+- Separate DOM reads from scrolling, fix frame-local click coordinates, and
+  use the parent OOPIF session for its in-process child frames.
+- Preserve CDP lookup errors and report connection failures directly.
+- Add regression tests and a synthetic Chrome/Puppeteer checkbox smoke suite
+  that runs without a real CAPTCHA or model downloads.
+
 ## 0.4.0 — 2026-09-03
 
 - Added Puppeteer Page mode to reuse the caller's existing CDP connection and

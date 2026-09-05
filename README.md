@@ -15,8 +15,8 @@ the user's browser.
 
 - TypeScript types and an ESM entry point.
 - A single, promise-based `solveReCaptcha()` API.
-- Reuses an existing Page, or connects through a loopback
-  remote-debugging port or browser-level CDP WebSocket endpoint.
+- Reuses an existing Page, or connects through a loopback remote-debugging
+  port, local `ws://`, or remote `wss://` browser-level CDP endpoint.
 - Local ONNX inference; no hosted inference API.
 - Classification support for 3x3 challenges and detection support for 4x4
   challenges.
@@ -72,8 +72,10 @@ depend on Browserless `/sessions`:
 import puppeteer from "puppeteer-core";
 import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
 
+const token = process.env.BROWSERLESS_TOKEN;
+if (!token) throw new Error("BROWSERLESS_TOKEN is required.");
 const browser = await puppeteer.connect({
-  browserWSEndpoint: "ws://localhost:3000",
+  browserWSEndpoint: `wss://production-sfo.browserless.io?token=${encodeURIComponent(token)}`,
 });
 const page = await browser.newPage();
 await page.goto("https://example.com/signup");
@@ -83,13 +85,20 @@ const result = await solveReCaptcha({
   clickCheckbox: true,
 });
 
-await browser.close();
+console.log(await page.title()); // Continue application work on this same page.
+// Close the browser only when all application work is finished.
 ```
 
 The solver only detaches the CDP sessions it creates. It does not close or
 disconnect the supplied Page or Browser. `targetUrl` is optional in Page mode
 and, when supplied, is only an assertion; it is never used to discover another
 tab. Concurrent calls using the same Page are rejected.
+
+Checkbox discovery skips hidden and empty widgets, includes nested frames,
+and prefers the first visible unchecked `#recaptcha-anchor`. The solver keeps
+the selected widget's identity while checking completion. Keep the Page
+stable during a solve. When frame access fails, inspect the error's `cause`
+for the underlying CDP failure.
 
 ## Port mode
 
@@ -127,10 +136,33 @@ const result = await solveReCaptcha({
 });
 ```
 
-Only `ws://` endpoints on `localhost`, `127.0.0.1`, and `[::1]` are accepted.
-Remote endpoints and `wss://` are intentionally unsupported. Exactly one of
+Direct mode accepts `wss://` browser CDP endpoints, including remote hosts,
+with certificate and hostname verification enabled. Query parameters such as
+`token` are preserved; credentials and session paths are redacted from
+connection errors. Redirects are not followed. The default direct-WSS
+connection/command timeout is 30 seconds.
+
+Unencrypted `ws://` remains limited to `localhost`, `127.0.0.1`, and `[::1]`.
+Port discovery remains limited to local `ws://` endpoints. Exactly one of
 `page`, `browserWSEndpoint`, or `port` must be supplied; ambiguous combinations
 fail before any browser connection is made.
+
+### Browserless cloud: use the existing session
+
+`wss://production-sfo.browserless.io?token=...` is a launch endpoint. Passing
+that same string to Puppeteer and then to the solver can allocate two separate
+browsers. `targetUrl` selects an already-open tab; it never opens or navigates
+one. Use the Page example above when the application already owns the page
+and needs to keep working with it after solving.
+
+Direct WSS mode instead requires a browser-specific reconnect endpoint, with
+its token included. Browserless documents how to obtain one using
+[`Browserless.reconnect`](https://docs.browserless.io/baas/session-management/standard-sessions).
+The caller must manage reconnect lifetime and any subsequent reconnection.
+The solver closes its own socket and detaches its sessions; it does not send
+`Browser.close` or extend the provider's session lifetime. A launch URL alone
+cannot identify another Puppeteer connection's browser. Only browser-level
+CDP endpoints are supported, not Playwright-native endpoints.
 
 CommonJS projects can load the same API with `require()`:
 
@@ -145,7 +177,7 @@ const { solveReCaptcha } = require("@conghuy113/recaptcha-solver");
 | `page`              | `PuppeteerPageLike` | Existing Puppeteer Page; reuses its CDP connection and exact target.   |
 | `targetUrl`         | `string`            | Required in port/WebSocket modes. Optional URL assertion in Page mode. |
 | `port`              | `number`            | Loopback Chrome remote-debugging port.                                 |
-| `browserWSEndpoint` | `string`            | Existing browser-level CDP `ws://` endpoint on loopback.               |
+| `browserWSEndpoint` | `string`            | Existing browser CDP endpoint: local `ws://` or verified `wss://`.     |
 | `clickCheckbox`     | `boolean`           | Whether to click the checkbox before handling an image challenge.      |
 | `confidence`        | `object`            | Optional per-call Classification and Detection confidence overrides.   |
 

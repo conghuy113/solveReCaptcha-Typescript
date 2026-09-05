@@ -3,7 +3,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { CdpBrowser, CdpElement, CdpFrame } from "../browser/cdp/index.js";
-import { CdpError } from "../browser/cdp/index.js";
+import { CdpConnectionError, CdpError, CdpProtocolError } from "../browser/cdp/index.js";
 import {
   CHECKBOX_SELECTOR,
   DEFAULT_NAVIGATION_TIMEOUT_MS,
@@ -55,12 +55,39 @@ function positiveInteger(value: number, name: string): number {
   return value;
 }
 
+type FrameKind = "anchor" | "bframe";
+
+interface FrameCandidate {
+  owner: CdpElement;
+  frame: CdpFrame;
+  name: string;
+  kind: FrameKind | undefined;
+}
+
+interface CheckboxSelection extends FrameCandidate {
+  frameId: string;
+}
+
+function frameKind(source: string, title: string): FrameKind | undefined {
+  try {
+    const match = new URL(source).pathname.match(/\/recaptcha\/(?:api2|enterprise)\/(anchor|bframe)$/);
+    if (match) return match[1] as FrameKind;
+  } catch {
+    // The iframe may still be loading; retain the title fallback.
+  }
+  const normalized = title.toLowerCase();
+  if (!normalized.includes("recaptcha")) return undefined;
+  return normalized.includes("challenge") || source.includes("bframe") ? "bframe" : "anchor";
+}
+
 export class ChallengeNavigation {
   readonly #browser: CdpBrowser;
   readonly #clock: NavigationClock;
   readonly #defaultTimeoutMs: number;
   readonly #pollIntervalMs: number;
   readonly #interactionAttempts: number;
+  #checkbox: CheckboxSelection | undefined;
+  #lastFrameError: CdpError | undefined;
 
   constructor(browser: CdpBrowser, options: ChallengeNavigationOptions = {}) {
     this.#browser = browser;
@@ -77,38 +104,57 @@ export class ChallengeNavigation {
   }
 
   async checkboxFrame(timeoutMs = this.#defaultTimeoutMs * 2): Promise<CdpFrame | undefined> {
-    return this.#findFrame(timeoutMs, async (iframe) => {
-      const title = (await iframe.attr("title") ?? "").toLowerCase();
-      const source = (await iframe.attr("src") ?? "").toLowerCase();
-      return title.includes("recaptcha") && !title.includes("challenge") && !source.includes("bframe");
-    });
+    positiveTimeout(timeoutMs, "timeoutMs");
+    this.#lastFrameError = undefined;
+    if (this.#checkbox) {
+      try {
+        // The selected owner is pinned to a DOM node, not its iframe index.
+        // Continue reading it even if the site hides it after solving.
+        if (await this.#checkbox.frame.element(CHECKBOX_SELECTOR, 0)) return this.#checkbox.frame;
+      } catch (error) {
+        this.#recordFrameError(error);
+      }
+    }
+    return this.#findFrame(timeoutMs, "anchor");
   }
 
   async challengeFrame(timeoutMs = this.#defaultTimeoutMs * 2): Promise<CdpFrame | undefined> {
-    return this.#findFrame(timeoutMs, async (iframe) => {
-      const title = (await iframe.attr("title") ?? "").toLowerCase();
-      if (title.includes("challenge")) return true;
-      const source = (await iframe.attr("src") ?? "").toLowerCase();
-      return source.includes("bframe");
-    });
+    return this.#findFrame(timeoutMs, "bframe");
   }
 
   async clickCheckbox(timeoutMs = this.#defaultTimeoutMs): Promise<void> {
+    const deadline = this.#clock.now() + positiveTimeout(timeoutMs, "timeoutMs");
+    let lastError: CdpError | undefined;
     for (let attempt = 0; attempt < this.#interactionAttempts; attempt += 1) {
-      const frame = await this.checkboxFrame(timeoutMs);
-      if (!frame) throw new ChallengeElementNotFoundError("Checkbox iframe not found.");
-      const checkbox = await frame.element(CHECKBOX_SELECTOR, timeoutMs);
-      if (!checkbox) throw new ChallengeElementNotFoundError("Checkbox element not found.");
-      const before = await checkbox.interactionState();
-      await checkbox.click();
-      await this.#clock.sleep(Math.min(200, timeoutMs));
-      if (await this.isSolved(0) || await this.challengeFrame(0)) return;
-      const refreshedFrame = await this.checkboxFrame(0);
-      const refreshed = await refreshedFrame?.element(CHECKBOX_SELECTOR, 0);
-      if (refreshed && await refreshed.interactionState() !== before) return;
+      const frame = await this.checkboxFrame(Math.max(0, deadline - this.#clock.now()));
+      if (!frame) {
+        const cause = this.#lastFrameError ?? lastError;
+        throw new ChallengeElementNotFoundError(
+          "No visible reCAPTCHA checkbox became ready before the timeout." +
+            (cause instanceof CdpProtocolError ? ` Last CDP operation: ${cause.method}.` : ""),
+          cause ? { cause } : undefined,
+        );
+      }
+      try {
+        const checkbox = await frame.element(CHECKBOX_SELECTOR, 0);
+        if (!checkbox || !await checkbox.isVisible()) throw new CdpError("The selected checkbox is no longer visible.");
+        if (await checkbox.attr("aria-checked", 0) === "true") return;
+        const before = await checkbox.interactionState();
+        await checkbox.click();
+        await this.#clock.sleep(Math.min(200, Math.max(0, deadline - this.#clock.now())));
+        if (await this.isSolved(0) || await this.challengeFrame(0)) return;
+        const refreshedFrame = await this.checkboxFrame(0);
+        const refreshed = await refreshedFrame?.element(CHECKBOX_SELECTOR, 0);
+        if (refreshed && await refreshed.interactionState() !== before) return;
+      } catch (error) {
+        this.#recordFrameError(error);
+        lastError = this.#lastFrameError;
+      }
     }
     throw new ChallengeElementNotFoundError(
-      "Checkbox clicks were dispatched but produced no observable state change.",
+      lastError ? "The selected reCAPTCHA checkbox could not be clicked."
+        : "Checkbox clicks were dispatched but produced no observable state change.",
+      lastError ? { cause: lastError } : undefined,
     );
   }
 
@@ -141,7 +187,7 @@ export class ChallengeNavigation {
       const frame = await this.checkboxFrame(timeoutMs);
       return frame ? Boolean(await frame.element(SOLVED_CHECKBOX_SELECTOR, timeoutMs)) : false;
     } catch (error) {
-      if (error instanceof CdpError) return false;
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return false;
       throw error;
     }
   }
@@ -154,7 +200,7 @@ export class ChallengeNavigation {
       if (!button) return false;
       return await button.attr("disabled") !== null;
     } catch (error) {
-      if (error instanceof CdpError) return true;
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return true;
       throw error;
     }
   }
@@ -182,7 +228,7 @@ export class ChallengeNavigation {
       const keyword = (await strong?.text())?.trim().toLowerCase();
       return keyword || undefined;
     } catch (error) {
-      if (error instanceof CdpError) return undefined;
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return undefined;
       throw error;
     }
   }
@@ -193,7 +239,7 @@ export class ChallengeNavigation {
       const element = await frame?.element(".rc-imageselect-instructions", 2_000);
       return await element?.text() ?? "";
     } catch (error) {
-      if (error instanceof CdpError) return "";
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return "";
       throw error;
     }
   }
@@ -219,12 +265,12 @@ export class ChallengeNavigation {
           }
           if (urls.length > 0) return urls;
         } catch (error) {
-          if (!(error instanceof CdpError)) throw error;
+          if (!(error instanceof CdpError) || error instanceof CdpConnectionError) throw error;
         }
       }
       return [];
     } catch (error) {
-      if (error instanceof CdpError) return [];
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return [];
       throw error;
     }
   }
@@ -255,12 +301,12 @@ export class ChallengeNavigation {
           const refreshed = (await refreshedFrame.elements(selector))[cell - 1];
           if (!refreshed || await refreshed.interactionState() !== before) return true;
         } catch (error) {
-          if (!(error instanceof CdpError)) throw error;
+          if (!(error instanceof CdpError) || error instanceof CdpConnectionError) throw error;
         }
       }
       return false;
     } catch (error) {
-      if (error instanceof CdpError) return false;
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return false;
       throw error;
     }
   }
@@ -273,27 +319,77 @@ export class ChallengeNavigation {
       await element.click();
       return true;
     } catch (error) {
-      if (error instanceof CdpError) return false;
+      if (error instanceof CdpError && !(error instanceof CdpConnectionError)) return false;
       throw error;
     }
   }
 
-  async #findFrame(
-    timeoutMs: number,
-    predicate: (iframe: CdpElement) => Promise<boolean>,
-  ): Promise<CdpFrame | undefined> {
+  #recordFrameError(error: unknown): void {
+    if (!(error instanceof CdpError) || error instanceof CdpConnectionError) throw error;
+    this.#lastFrameError = error;
+  }
+
+  async *#frameCandidates(document: CdpBrowser | CdpFrame = this.#browser, depth = 0): AsyncGenerator<FrameCandidate> {
+    // Bound traversal of unrelated embedded documents, including recursive embeds.
+    if (depth >= 16) return;
+    let iframes: CdpElement[];
+    try {
+      iframes = await document.elements("t:iframe");
+    } catch (error) {
+      this.#recordFrameError(error);
+      return;
+    }
+    for (const iframe of iframes) {
+      try {
+        const owner = await iframe.pin();
+        if (!await owner.isVisible()) continue;
+        const source = await owner.attr("src", 0) ?? "";
+        const title = await owner.attr("title", 0) ?? "";
+        const name = await owner.attr("name", 0) ?? "";
+        const kind = frameKind(source, title);
+        const frame = this.#browser.frame(owner);
+        if (kind) yield { owner, frame, name, kind };
+        else yield* this.#frameCandidates(frame, depth + 1);
+      } catch (error) {
+        this.#recordFrameError(error);
+      }
+    }
+  }
+
+  async #findFrame(timeoutMs: number, kind: FrameKind): Promise<CdpFrame | undefined> {
     const timeout = positiveTimeout(timeoutMs, "timeoutMs");
     const deadline = this.#clock.now() + timeout;
     while (true) {
-      try {
-        for (const iframe of await this.#browser.elements("t:iframe")) {
-          if (await predicate(iframe)) return this.#browser.frame(iframe);
+      let solvedFallback: CheckboxSelection | undefined;
+      for await (const candidate of this.#frameCandidates()) {
+        if (candidate.kind !== kind) continue;
+        try {
+          if (kind === "anchor" && this.#checkbox) {
+            const sameWidget = this.#checkbox.name
+              ? candidate.name === this.#checkbox.name
+              : await candidate.owner.frameId() === this.#checkbox.frameId;
+            if (!sameWidget) continue;
+          }
+          const element = await candidate.frame.element(kind === "anchor" ? CHECKBOX_SELECTOR : VERIFY_BUTTON_SELECTOR, 0);
+          if (!element || !await element.isVisible()) continue;
+          if (kind === "bframe") return candidate.frame;
+          const selected = { ...candidate, frameId: await candidate.owner.frameId() };
+          if (!this.#checkbox && await element.attr("aria-checked", 0) === "true") {
+            solvedFallback ??= selected;
+            continue;
+          }
+          this.#checkbox = selected;
+          return selected.frame;
+        } catch (error) {
+          this.#recordFrameError(error);
         }
-      } catch (error) {
-        if (!(error instanceof CdpError)) throw error;
+      }
+      if (solvedFallback) {
+        this.#checkbox = solvedFallback;
+        return solvedFallback.frame;
       }
       if (this.#clock.now() >= deadline) return undefined;
-      await this.#clock.sleep(this.#pollIntervalMs);
+      await this.#clock.sleep(Math.min(this.#pollIntervalMs, deadline - this.#clock.now()));
     }
   }
 }

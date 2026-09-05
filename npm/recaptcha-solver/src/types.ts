@@ -49,7 +49,10 @@ export interface SolveReCaptchaPortOptions extends SolveReCaptchaCommonOptions {
 export interface SolveReCaptchaWebSocketOptions extends SolveReCaptchaCommonOptions {
   /** Full URL or stable URL fragment of the already-open target tab. */
   targetUrl: string;
-  /** Loopback browser-level CDP WebSocket endpoint. */
+  /** Existing browser's CDP endpoint: ws:// on loopback, or wss:// with verified TLS.
+   * A provider launch URL does not identify a browser already opened by Puppeteer;
+   * use Page mode to preserve that connection, or supply its reconnect endpoint.
+   */
   browserWSEndpoint: string;
   page?: never;
   port?: never;

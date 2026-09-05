@@ -13,7 +13,7 @@ the associated TypeScript types; inference and browser modules remain internal.
 - TypeScript detection: YOLO letterbox preprocessing, multilingual COCO target
   mapping, output decoding, NMS, and 4x4 cell mapping.
 - TypeScript CDP: shared Page connections, loopback port or direct
-  browser-WebSocket discovery, flat page/OOPIF sessions, DOM locators,
+  local WS/remote WSS browser discovery, flat page/OOPIF sessions, DOM locators,
   JavaScript, cookies, and trusted mouse clicks.
 - TypeScript challenge I/O: iframe discovery, checkbox/tile/control actions,
   challenge text and payload extraction, bounded image download, and in-memory
@@ -67,8 +67,10 @@ pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:solve
 
 Set `RECAPTCHA_SOLVER_CDP_WS_ENDPOINT` to an existing browser-level endpoint,
 instead of setting the port, to run the live solve or debug harness through
-direct WebSocket mode. The Browserless allocation endpoint
-`ws://localhost:3000` is reserved for the Page-mode smoke path below.
+direct WebSocket mode. Both local `ws://` and verified remote `wss://` are
+supported. Browserless launch endpoints such as `ws://localhost:3000` or
+`wss://production-sfo.browserless.io?token=...` belong in the Page-mode smoke
+path below. Reusing a launch URL does not select an already-open browser.
 
 To exercise Puppeteer Page mode against a local Browserless instance, install
 `puppeteer-core` in the development workspace and run:
@@ -83,6 +85,37 @@ pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:page
 This smoke path passes the newly created Page directly to `solveReCaptcha()`;
 it never reads Browserless `/sessions` or opens a second solver WebSocket.
 
+For a reproducible local checkbox regression check, build the package, install
+`puppeteer-core` in the development workspace, and run:
+
+```bash
+CHROME_EXECUTABLE_PATH=/path/to/chrome \
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:checkbox
+```
+
+This suite launches headless Chrome and reconnects with Puppeteer, then tests
+the built public API against 13 synthetic loopback fixtures. It covers hidden
+and empty widgets, nested same-process/OOPIF frames, delayed rendering, DOM
+reordering, and iframe replacement. It checks trusted click events, token and
+widget verification, and continued caller ownership of the Page. No real
+CAPTCHA, cloud endpoint, credentials, or downloaded inference models are used.
+`PUPPETEER_CORE_MODULE` can optionally point to a caller-installed Puppeteer
+module URL. Browserless cloud compatibility must be verified separately.
+
+Run the same fixture suite through verified WSS with:
+
+```bash
+CHROME_EXECUTABLE_PATH=/path/to/chrome \
+pnpm --dir npm --filter @conghuy113/recaptcha-solver run smoke:wss
+```
+
+This adds a local TLS proxy and trusts its test certificate only in a child
+Node process. It checks 13 Page-mode cases, four direct-WSS cases, and
+missing-tab cleanup while Puppeteer retains its connection. Page mode must
+open no extra socket; direct mode must open exactly one per solve. The normal
+test suite also checks untrusted certificates, hostname mismatches, token
+encoding, authentication failure, redirects, and handshake timeout.
+
 For authorized local diagnosis, the test-only debug harness captures before
 and after screenshots plus a sanitized result under `Debug/<timestamp>/`:
 
@@ -95,3 +128,19 @@ pnpm --dir npm/recaptcha-solver exec tsx scripts/solve-debug.ts
 
 `Debug/` is ignored by Git and is not included in the published package. The
 harness stores only token hashes and lengths, never raw response tokens.
+The debug harness makes separate connections for before/solve/after. Use it
+only with an endpoint that remains available across those connections; it
+does not manage Browserless reconnect keepalive. Use the application's Page
+workflow when that application must retain ownership of the cloud browser.
+
+## Next npm release
+
+The package manifest is set to `0.5.0`. Publish from the matching `v0.5.0`
+GitHub Release after committing and reviewing the source. The publish workflow
+checks that the release tag matches the manifest; it does not increment the
+version automatically. A read-only preflight is:
+
+```bash
+node packaging/check_release_candidate.mjs v0.5.0 --manifest-only
+node packaging/check_registry_version.mjs
+```

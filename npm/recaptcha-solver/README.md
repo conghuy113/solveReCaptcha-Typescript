@@ -17,8 +17,10 @@ application already owns the Browserless connection:
 import puppeteer from "puppeteer-core";
 import { solveReCaptcha } from "@conghuy113/recaptcha-solver";
 
+const token = process.env.BROWSERLESS_TOKEN;
+if (!token) throw new Error("BROWSERLESS_TOKEN is required.");
 const browser = await puppeteer.connect({
-  browserWSEndpoint: "ws://localhost:3000",
+  browserWSEndpoint: `wss://production-sfo.browserless.io?token=${encodeURIComponent(token)}`,
 });
 const page = await browser.newPage();
 await page.goto("https://example.com/signup");
@@ -28,7 +30,8 @@ const result = await solveReCaptcha({
   clickCheckbox: true,
 });
 
-await browser.close(); // The caller continues to own the browser.
+console.log(await page.title()); // Continue application work on this same page.
+// Close the browser only when all application work is finished.
 ```
 
 Page mode reuses Puppeteer's existing CDP connection and exact page target. It
@@ -36,6 +39,17 @@ does not query Browserless `/sessions`, open another WebSocket, search for a
 tab, close the page, or disconnect the browser. An optional `targetUrl` acts
 only as an assertion against the supplied page's current URL. Only one solve
 may use the same Page at a time.
+
+With `clickCheckbox: true`, the solver searches visible frames, including
+nested frames, for a ready `#recaptcha-anchor`. It skips hidden or empty
+widgets, prefers the first visible unchecked checkbox, and keeps completion
+checks tied to that widget. A replacement iframe can be reacquired by its
+existing name. The application should keep the Page stable during the solve.
+
+If no usable checkbox becomes ready, the error identifies the readiness
+timeout. Frame access failures are retained in `error.cause`; connection
+failures are reported directly. `page.setDefaultTimeout()` does not change the
+solver's internal polling timeout.
 
 ## Port mode
 
@@ -68,10 +82,30 @@ const result = await solveReCaptcha({
 });
 ```
 
-Direct WebSocket mode accepts only `ws://` endpoints on `localhost`,
-`127.0.0.1`, or `[::1]`. It does not support remote endpoints or `wss://`.
+Direct WebSocket mode accepts remote `wss://` browser CDP endpoints with
+certificate and hostname verification enabled. Query parameters, including
+URL tokens, are preserved. Connection errors redact credentials and reconnect
+paths while retaining TLS/network codes or HTTP handshake statuses. Redirects
+are not followed. Direct WSS connections and commands default to 30 seconds.
+
+Unencrypted `ws://` stays restricted to `localhost`, `127.0.0.1`, or `[::1]`.
+Port discovery still requires a local `ws://` browser endpoint.
 Exactly one of `page`, `browserWSEndpoint`, or `port` must be supplied. In port
 and WebSocket modes, `targetUrl` is required to locate the existing tab.
+
+The Browserless URL `wss://production-sfo.browserless.io?token=...` launches a
+browser. Connecting to it again does not select the browser Puppeteer already
+opened. Use Page mode above to keep using that exact Page after the solve.
+
+If direct WSS is needed, supply a browser-specific reconnect URL with its
+token, and manage its lifetime according to
+[Browserless session management](https://docs.browserless.io/baas/session-management/standard-sessions).
+The solver detaches its sessions and closes its own socket, without sending
+`Browser.close` or extending provider keepalive. The provider can terminate a
+session when its connection or keepalive expires. The solver never opens or
+navigates a tab, and reports a missing target with guidance to use the Page
+or the correct reconnect endpoint. Playwright-native endpoints are not CDP
+endpoints and are unsupported.
 
 CommonJS is supported too:
 

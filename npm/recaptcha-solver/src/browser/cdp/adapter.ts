@@ -18,6 +18,8 @@ export interface CdpContext {
   executionContextId?: number;
   offsetX: number;
   offsetY: number;
+  frameOffset?: () => Promise<readonly [number, number]>;
+  frameVisible?: () => Promise<boolean>;
 }
 
 export interface CdpTarget {
@@ -61,14 +63,20 @@ function numberValue(value: unknown): number {
 
 async function poll<T>(operation: () => Promise<T | undefined>, timeoutMs: number): Promise<T | undefined> {
   const deadline = Date.now() + Math.max(0, timeoutMs);
+  let lastError: CdpError | undefined;
   while (true) {
     try {
       const result = await operation();
       if (result !== undefined) return result;
+      lastError = undefined;
     } catch (error) {
-      if (!(error instanceof CdpError)) throw error;
+      if (!(error instanceof CdpError) || error instanceof CdpConnectionError) throw error;
+      lastError = error;
     }
-    if (Date.now() >= deadline) return undefined;
+    if (Date.now() >= deadline) {
+      if (lastError) throw lastError;
+      return undefined;
+    }
     await delay(100);
   }
 }
@@ -145,7 +153,7 @@ export class CdpPage {
     await this.evaluate("1");
   }
 
-  async sessionForFrame(frameId: string): Promise<string> {
+  async sessionForFrame(frameId: string, parentSessionId = this.sessionId): Promise<string> {
     const cached = this.#frameSessions.get(frameId);
     if (cached) {
       try {
@@ -161,7 +169,7 @@ export class CdpPage {
     const frameTarget = targetInfos.map(objectValue).find((target) =>
       target?.type === "iframe" && String(target.targetId) === frameId,
     );
-    if (!frameTarget) return this.sessionId;
+    if (!frameTarget) return parentSessionId;
     const attached = await this.transport.call("Target.attachToTarget", { targetId: frameId, flatten: true });
     if (!attached.sessionId) {
       throw new CdpProtocolError("Target.attachToTarget", `Chrome returned no session for iframe target ${frameId}.`);
@@ -172,21 +180,13 @@ export class CdpPage {
     return sessionId;
   }
 
-  async createFrameContext(frameId: string): Promise<CdpContext> {
-    const sessionId = await this.sessionForFrame(frameId);
-    let result: JsonObject;
-    try {
-      result = await this.transport.call("Page.createIsolatedWorld", {
-        frameId,
-        worldName: CdpPage.ISOLATED_WORLD,
-        grantUniveralAccess: true,
-      }, { sessionId });
-    } catch (error) {
-      if (error instanceof CdpProtocolError && sessionId !== this.sessionId) {
-        return { sessionId, offsetX: 0, offsetY: 0 };
-      }
-      throw error;
-    }
+  async createFrameContext(frameId: string, parentSessionId = this.sessionId): Promise<CdpContext> {
+    const sessionId = await this.sessionForFrame(frameId, parentSessionId);
+    const result = await this.transport.call("Page.createIsolatedWorld", {
+      frameId,
+      worldName: CdpPage.ISOLATED_WORLD,
+      grantUniveralAccess: true,
+    }, { sessionId });
     if (!Number.isInteger(result.executionContextId)) {
       throw new CdpProtocolError("Page.createIsolatedWorld", `Chrome returned no execution context for frame ${frameId}.`);
     }
@@ -221,11 +221,12 @@ export class CdpPage {
     functionDeclaration: string,
     context: CdpContext,
     args: unknown[] = [],
+    returnByValue = true,
   ): Promise<unknown> {
     const params: JsonObject = {
       objectId,
       functionDeclaration,
-      returnByValue: true,
+      returnByValue,
       awaitPromise: true,
       userGesture: true,
     };
@@ -236,7 +237,7 @@ export class CdpPage {
       throw new CdpProtocolError("Runtime.callFunctionOn", String(exception.text ?? "JavaScript function failed."));
     }
     const result = objectValue(response.result);
-    return result ? remoteValue(result) : undefined;
+    return result ? (returnByValue ? remoteValue(result) : result) : undefined;
   }
 
   async releaseObject(objectId: string, context: CdpContext): Promise<void> {
@@ -249,6 +250,9 @@ export class CdpPage {
 
   async clickObject(objectId: string, context: CdpContext): Promise<void> {
     await this.transport.call("DOM.scrollIntoViewIfNeeded", { objectId }, { sessionId: context.sessionId });
+    const [offsetX, offsetY] = context.frameOffset
+      ? await context.frameOffset()
+      : [context.offsetX, context.offsetY];
     const metrics = await this.transport.call(
       "Page.getLayoutMetrics",
       {},
@@ -259,42 +263,22 @@ export class CdpPage {
       throw new CdpProtocolError("Page.getLayoutMetrics", "The page has no usable layout viewport.");
     }
 
-    let localX: number | undefined;
-    let localY: number | undefined;
-    try {
-      const quadsResponse = await this.transport.call(
-        "DOM.getContentQuads",
-        { objectId },
-        { sessionId: context.sessionId },
-      );
-      const quads = Array.isArray(quadsResponse.quads) ? quadsResponse.quads : [];
-      const quad = quads.find((value): value is number[] =>
-        Array.isArray(value) && value.length === 8 && value.every((coordinate) =>
-          typeof coordinate === "number" && Number.isFinite(coordinate),
-        ),
-      );
-      if (quad) {
-        localX = ((quad[0] ?? 0) + (quad[2] ?? 0) + (quad[4] ?? 0) + (quad[6] ?? 0)) / 4;
-        localY = ((quad[1] ?? 0) + (quad[3] ?? 0) + (quad[5] ?? 0) + (quad[7] ?? 0)) / 4;
-      }
-    } catch (error) {
-      if (!(error instanceof CdpError)) throw error;
+    // DOM.getContentQuads uses the session viewport, which can be an ancestor
+    // document for in-process frames. DOM geometry and hit testing must both
+    // use this element's document before adding the frame's root-page offset.
+    const geometry = objectValue(await this.callFunction(objectId, `function() {
+      if (!(this instanceof Element) || this.getClientRects().length === 0) return null;
+      const rect = this.getBoundingClientRect();
+      return {left: rect.left, top: rect.top, width: rect.width, height: rect.height};
+    }`, context));
+    if (!geometry) throw new CdpProtocolError("Runtime.callFunctionOn", "Element is not visible.");
+    const width = numberValue(geometry.width);
+    const height = numberValue(geometry.height);
+    if (width <= 0 || height <= 0) {
+      throw new CdpProtocolError("Runtime.callFunctionOn", "Element has an empty box.");
     }
-    if (localX === undefined || localY === undefined) {
-      const geometry = objectValue(await this.callFunction(objectId, `function() {
-        if (!(this instanceof Element) || this.getClientRects().length === 0) return null;
-        const rect = this.getBoundingClientRect();
-        return {left: rect.left, top: rect.top, width: rect.width, height: rect.height};
-      }`, context));
-      if (!geometry) throw new CdpProtocolError("Runtime.callFunctionOn", "Element is not visible.");
-      const width = numberValue(geometry.width);
-      const height = numberValue(geometry.height);
-      if (width <= 0 || height <= 0) {
-        throw new CdpProtocolError("Runtime.callFunctionOn", "Element has an empty box.");
-      }
-      localX = numberValue(geometry.left) + width / 2;
-      localY = numberValue(geometry.top) + height / 2;
-    }
+    const localX = numberValue(geometry.left) + width / 2;
+    const localY = numberValue(geometry.top) + height / 2;
     const hitTarget = await this.callFunction(objectId, `function(x, y) {
       if (!(this instanceof Element) || this.getClientRects().length === 0) return false;
       const hit = document.elementFromPoint(x, y);
@@ -303,10 +287,10 @@ export class CdpPage {
       return target === hit || target.contains(hit) || hit.contains(target);
     }`, context, [localX, localY]);
     if (hitTarget !== true) {
-      throw new CdpProtocolError("DOM.getContentQuads", "The click point is covered by another element.");
+      throw new CdpProtocolError("Runtime.callFunctionOn", "The click point is covered by another element.");
     }
-    const x = context.offsetX + localX;
-    const y = context.offsetY + localY;
+    const x = offsetX + localX;
+    const y = offsetY + localY;
     const events: JsonObject[] = [
       { type: "mouseMoved", x, y },
       { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 },
@@ -322,11 +306,13 @@ export class CdpElement {
   readonly #page: CdpPage;
   readonly #contextProvider: () => Promise<CdpContext>;
   readonly #locatorPath: readonly LocatorStep[];
+  readonly #backendNodeId: number | undefined;
 
-  constructor(page: CdpPage, contextProvider: () => Promise<CdpContext>, locatorPath: readonly LocatorStep[]) {
+  constructor(page: CdpPage, contextProvider: () => Promise<CdpContext>, locatorPath: readonly LocatorStep[], backendNodeId?: number) {
     this.#page = page;
     this.#contextProvider = contextProvider;
     this.#locatorPath = locatorPath;
+    this.#backendNodeId = backendNodeId;
   }
 
   resolveExpression(): string {
@@ -337,6 +323,42 @@ export class CdpElement {
 
   async resolveObject(): Promise<{ objectId: string; context: CdpContext } | undefined> {
     const context = await this.#contextProvider();
+    if (this.#backendNodeId !== undefined) {
+      const response = await this.#page.transport.call("DOM.resolveNode", {
+        backendNodeId: this.#backendNodeId,
+        ...(context.executionContextId === undefined ? {} : { executionContextId: context.executionContextId }),
+        objectGroup: CdpPage.OBJECT_GROUP,
+      }, { sessionId: context.sessionId });
+      const object = objectValue(response.object);
+      if (!object?.objectId) return undefined;
+      const objectId = String(object.objectId);
+      if (this.#locatorPath.length === 0) {
+        try {
+          if (await this.#page.callFunction(objectId, "function() { return this.isConnected; }", context) === true) {
+            return { objectId, context };
+          }
+        } catch (error) {
+          await this.#page.releaseObject(objectId, context);
+          throw error;
+        }
+        await this.#page.releaseObject(objectId, context);
+        return undefined;
+      }
+      try {
+        const remote = objectValue(await this.#page.callFunction(objectId, `function(path) {
+          if (!this.isConnected) return null;
+          let current = this;
+          for (const step of path) {
+            current = current.querySelectorAll(step.selector).item(step.index);
+            if (!current) return null;
+          }
+          return current;
+        }`, context, [this.#locatorPath], false));
+        return remote?.objectId ? { objectId: String(remote.objectId), context } : undefined;
+      } finally {
+        await this.#page.releaseObject(objectId, context);
+      }
+    }
     const remote = objectValue(await this.#page.evaluate(this.resolveExpression(), context, false));
     if (!remote || remote.subtype === "null" || !remote.objectId) return undefined;
     return { objectId: String(remote.objectId), context };
@@ -351,7 +373,47 @@ export class CdpElement {
     }, timeoutMs)) ?? false;
   }
 
-  async attr(name: string): Promise<string | null> {
+  /** Keep the same DOM node even when sibling elements are inserted or removed. */
+  async pin(): Promise<CdpElement> {
+    if (this.#backendNodeId !== undefined && this.#locatorPath.length === 0) return this;
+    const resolved = await this.resolveObject();
+    if (!resolved) throw new CdpError("Element disappeared before its identity could be captured.");
+    try {
+      const response = await this.#page.transport.call("DOM.describeNode", {
+        objectId: resolved.objectId, depth: 0,
+      }, { sessionId: resolved.context.sessionId });
+      const node = objectValue(response.node);
+      if (!Number.isInteger(node?.backendNodeId)) {
+        throw new CdpProtocolError("DOM.describeNode", "Chrome returned no backend node identity.");
+      }
+      return new CdpElement(this.#page, this.#contextProvider, [], Number(node?.backendNodeId));
+    } finally {
+      await this.#page.releaseObject(resolved.objectId, resolved.context);
+    }
+  }
+
+  async isVisible(): Promise<boolean> {
+    const resolved = await this.resolveObject();
+    if (!resolved) return false;
+    try {
+      if (resolved.context.frameVisible && !await resolved.context.frameVisible()) return false;
+      return await this.#page.callFunction(resolved.objectId, `function() {
+        if (!this.isConnected || this.getClientRects().length === 0) return false;
+        const rect = this.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        if (getComputedStyle(this).visibility !== 'visible') return false;
+        for (let node = this; node instanceof Element; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === 'none' || Number(style.opacity) === 0) return false;
+        }
+        return true;
+      }`, resolved.context) === true;
+    } finally {
+      await this.#page.releaseObject(resolved.objectId, resolved.context);
+    }
+  }
+
+  async attr(name: string, timeoutMs = 2_000): Promise<string | null> {
     const value = await poll(async () => {
       const resolved = await this.resolveObject();
       if (!resolved) return undefined;
@@ -365,7 +427,7 @@ export class CdpElement {
       } finally {
         await this.#page.releaseObject(resolved.objectId, resolved.context);
       }
-    }, 2_000);
+    }, timeoutMs);
     return value === null || value === undefined ? null : String(value);
   }
 
@@ -422,7 +484,7 @@ export class CdpElement {
         await this.#page.clickObject(resolved.objectId, resolved.context);
         return true;
       } catch (error) {
-        if (!(error instanceof CdpError)) throw error;
+        if (!(error instanceof CdpError) || error instanceof CdpConnectionError) throw error;
         lastError = error;
         return undefined;
       } finally {
@@ -442,7 +504,7 @@ export class CdpElement {
     const child = new CdpElement(this.#page, this.#contextProvider, [
       ...this.#locatorPath,
       { selector: toCssSelector(selector), index: 0 },
-    ]);
+    ], this.#backendNodeId);
     return await child.waitUntilPresent(timeoutMs) ? child : undefined;
   }
 
@@ -462,11 +524,20 @@ export class CdpElement {
       await this.#page.releaseObject(resolved.objectId, resolved.context);
     }
     return Array.from({ length: Math.max(0, Math.trunc(numberValue(count))) }, (_, index) =>
-      new CdpElement(this.#page, this.#contextProvider, [...this.#locatorPath, { selector: css, index }]),
+      new CdpElement(this.#page, this.#contextProvider, [...this.#locatorPath, { selector: css, index }], this.#backendNodeId),
     );
   }
 
   async frameId(): Promise<string> {
+    return (await this.#frameInfo()).frameId;
+  }
+
+  async contentContext(): Promise<CdpContext> {
+    const info = await this.#frameInfo();
+    return this.#page.createFrameContext(info.frameId, info.parentSessionId);
+  }
+
+  async #frameInfo(): Promise<{ frameId: string; parentSessionId: string }> {
     const resolved = await this.resolveObject();
     if (!resolved) throw new CdpError("Iframe element is no longer present.");
     try {
@@ -477,7 +548,7 @@ export class CdpElement {
       );
       const node = objectValue(response.node);
       if (!node?.frameId) throw new CdpProtocolError("DOM.describeNode", "Selected element is not a frame owner.");
-      return String(node.frameId);
+      return { frameId: String(node.frameId), parentSessionId: resolved.context.sessionId };
     } finally {
       await this.#page.releaseObject(resolved.objectId, resolved.context);
     }
@@ -487,6 +558,9 @@ export class CdpElement {
     const resolved = await this.resolveObject();
     if (!resolved) throw new CdpError("Iframe element is no longer present.");
     try {
+      const [parentX, parentY] = resolved.context.frameOffset
+        ? await resolved.context.frameOffset()
+        : [resolved.context.offsetX, resolved.context.offsetY];
       await this.#page.transport.call(
         "DOM.scrollIntoViewIfNeeded",
         { objectId: resolved.objectId },
@@ -499,7 +573,7 @@ export class CdpElement {
           y: rect.top + parseFloat(style.borderTopWidth || '0') + parseFloat(style.paddingTop || '0') };
       }`, resolved.context));
       if (!offset) throw new CdpError("Iframe element is not visible.");
-      return [resolved.context.offsetX + numberValue(offset.x), resolved.context.offsetY + numberValue(offset.y)];
+      return [parentX + numberValue(offset.x), parentY + numberValue(offset.y)];
     } finally {
       await this.#page.releaseObject(resolved.objectId, resolved.context);
     }
@@ -531,10 +605,15 @@ class CdpDocument {
 
 export class CdpFrame extends CdpDocument {
   constructor(page: CdpPage, iframe: CdpElement) {
+    let owner: CdpElement | undefined;
     super(page, async () => {
-      const context = await page.createFrameContext(await iframe.frameId());
-      const [offsetX, offsetY] = await iframe.frameContentOffset();
-      return { ...context, offsetX, offsetY };
+      const pinned = owner ??= await iframe.pin();
+      const context = await pinned.contentContext();
+      return {
+        ...context,
+        frameOffset: () => pinned.frameContentOffset(),
+        frameVisible: () => pinned.isVisible(),
+      };
     });
   }
 }
@@ -623,6 +702,10 @@ function isLoopback(hostname: string): boolean {
 
 function assertLoopbackWebsocket(url: string): void {
   validateBrowserWebSocketEndpoint(url);
+  const parsed = new URL(url);
+  if (parsed.protocol !== "ws:" || !isLoopback(parsed.hostname)) {
+    throw new CdpConnectionError("Port discovery requires a ws:// browser WebSocket on loopback.");
+  }
 }
 
 export class CdpChrome {
@@ -653,7 +736,8 @@ export class CdpChrome {
     this.#version = version;
     this.#browserWebsocketUrl = browserWebsocketUrl;
     this.#browserTransport = browserTransport;
-    assertLoopbackWebsocket(this.#browserWebsocketUrl);
+    if (port === undefined) validateBrowserWebSocketEndpoint(this.#browserWebsocketUrl);
+    else assertLoopbackWebsocket(this.#browserWebsocketUrl);
   }
 
   static async connect(port: number, options: CdpChromeOptions = {}): Promise<CdpChrome> {
@@ -682,7 +766,8 @@ export class CdpChrome {
     browserWebsocketUrl: string,
     options: CdpWebSocketOptions = {},
   ): Promise<CdpChrome> {
-    const timeoutMs = options.timeoutMs ?? 5_000;
+    validateBrowserWebSocketEndpoint(browserWebsocketUrl);
+    const timeoutMs = options.timeoutMs ?? (new URL(browserWebsocketUrl).protocol === "wss:" ? 30_000 : 5_000);
     const transport = await CdpTransport.connect(browserWebsocketUrl, timeoutMs);
     try {
       const version = await transport.call("Browser.getVersion", {}, { timeoutMs });
@@ -769,7 +854,11 @@ export class CdpChrome {
   async selectTab(targetUrl: string): Promise<CdpBrowser> {
     const tabs = await this.listTabs();
     const target = tabs.find((tab) => tab.url === targetUrl) ?? tabs.find((tab) => tab.url.includes(targetUrl));
-    if (!target) throw new CdpConnectionError(`No browser tab URL contains: ${targetUrl}`);
+    if (!target) throw new CdpConnectionError(
+      `No browser tab URL contains: ${targetUrl}. ` +
+      "Pass the existing Puppeteer page, or a reconnect endpoint for that browser. " +
+      "A provider launch endpoint can create a different browser; the solver does not open or navigate tabs.",
+    );
     if (this.#selectedTargetId === target.id && this.#selectedTab && !this.#selectedTab.closed) {
       try { await this.#selectedTab.ping(); return this.#selectedTab; } catch (error) {
         if (!(error instanceof CdpError)) throw error;
@@ -785,10 +874,13 @@ export class CdpChrome {
   }
 
   async close(): Promise<void> {
-    if (this.#selectedTab) await this.#selectedTab.close();
-    this.#selectedTab = undefined;
-    this.#selectedTargetId = undefined;
-    if (this.#browserTransport) this.#browserTransport.close();
-    this.#browserTransport = undefined;
+    try {
+      if (this.#selectedTab) await this.#selectedTab.close();
+    } finally {
+      this.#selectedTab = undefined;
+      this.#selectedTargetId = undefined;
+      if (this.#browserTransport) this.#browserTransport.close();
+      this.#browserTransport = undefined;
+    }
   }
 }

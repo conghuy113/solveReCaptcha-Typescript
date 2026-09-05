@@ -8,9 +8,11 @@ import {
   CdpBrowser,
   CdpChrome,
   CdpPage,
+  CdpConnectionError,
   CdpProtocolError,
   CdpTransport,
   PuppeteerPageChrome,
+  validateBrowserWebSocketEndpoint,
   toCssSelector,
 } from "../src/browser/cdp/index.js";
 import type { PuppeteerPageLike } from "../src/types.js";
@@ -62,7 +64,8 @@ class FakeTransport {
     if (method === "DOM.getContentQuads") {
       return { quads: [[10, 20, 50, 20, 50, 40, 10, 40]] };
     }
-    if (method === "DOM.describeNode") return { node: { frameId: "captcha-frame" } };
+    if (method === "DOM.describeNode") return { node: { frameId: "captcha-frame", backendNodeId: 1 } };
+    if (method === "DOM.resolveNode") return { object: { type: "object", objectId: "iframe-owner" } };
     if (method === "Network.getCookies") return { cookies: [{ name: "session", value: "cookie" }] };
     if (method === "Runtime.evaluate") {
       const expression = String(params.expression ?? "");
@@ -74,6 +77,7 @@ class FakeTransport {
     }
     if (method === "Runtime.callFunctionOn") {
       const declaration = String(params.functionDeclaration ?? "");
+      if (declaration.includes("this.isConnected")) return { result: { type: "boolean", value: true } };
       if (declaration.includes("getAttribute")) return { result: { type: "string", value: "reCAPTCHA challenge" } };
       if (declaration.includes("borderLeftWidth")) return { result: { type: "object", value: { x: 100, y: 200 } } };
       if (declaration.includes("getBoundingClientRect") && params.objectId === "captcha-tile") {
@@ -196,10 +200,17 @@ test("transport exposes typed protocol errors", async () => {
   transport.close();
 });
 
-test("transport accepts only ws:// loopback WebSocket endpoints", async () => {
+test("transport accepts verified WSS endpoints and keeps unencrypted WS on loopback", async () => {
+  for (const endpoint of [
+    "ws://localhost:3000", "ws://127.0.0.1:9222", "ws://[::1]:9222",
+    "wss://localhost:3000", "wss://192.0.2.1/devtools/browser/id",
+    "wss://production-sfo.browserless.io?token=test%2Btoken%3D&launch=%7B%7D",
+  ]) assert.doesNotThrow(() => validateBrowserWebSocketEndpoint(endpoint));
   await assert.rejects(CdpTransport.connect("ws://192.0.2.1/devtools/browser/id"), /loopback/);
-  await assert.rejects(CdpTransport.connect("wss://localhost/devtools/browser/id"), /must use ws/);
   await assert.rejects(CdpTransport.connect("http://localhost:9222"), /must use ws/);
+  await assert.rejects(CdpTransport.connect("https://example.com"), /must use ws/);
+  await assert.rejects(CdpTransport.connect("wss://example.com/?token=secret#fragment"), /fragment/);
+  await assert.rejects(CdpTransport.connect("wss://example.com/#"), /fragment/);
 });
 
 test("a shared page session detaches without closing its browser transport", async () => {
@@ -274,6 +285,8 @@ test("OOPIF queries use child sessions while trusted clicks use the root session
   const strong = await target.element("tag:strong");
   assert.ok(strong);
   assert.equal(await strong.text(), "bus");
+  assert.equal(transport.calls.some(([method]) => method === "DOM.scrollIntoViewIfNeeded"), false,
+    "reading a frame must not scroll its owner or require a layout object");
   const tile = await frame.element("#rc-imageselect-target td");
   assert.ok(tile);
   await tile.click();
@@ -287,6 +300,8 @@ test("OOPIF queries use child sessions while trusted clicks use the root session
   assert.ok(mouseCalls.every(([, , session]) => session === "page-session"));
   assert.equal(mouseCalls[0]?.[1].x, 130);
   assert.equal(mouseCalls[0]?.[1].y, 230);
+  assert.equal(transport.calls.some(([method]) => method === "DOM.getContentQuads"), false,
+    "session-relative quads must not be treated as coordinates in the checkbox document");
 
   await browser.close();
   assert.ok(transport.calls.some(([method, params]) =>
@@ -295,6 +310,61 @@ test("OOPIF queries use child sessions while trusted clicks use the root session
   assert.ok(transport.calls.some(([method, params]) =>
     method === "Target.detachFromTarget" && params.sessionId === "page-session",
   ));
+});
+
+test("frame lookup preserves isolated-world failures instead of querying the default document", async () => {
+  const transport = new FakeTransport();
+  const original = transport.call.bind(transport);
+  const failure = new CdpProtocolError("Page.createIsolatedWorld", "No frame with given id");
+  transport.call = async (method, params, options) => {
+    if (method === "Page.createIsolatedWorld") throw failure;
+    return original(method, params, options);
+  };
+  const page = await CdpPage.create(transport, "page", "root");
+  const browser = CdpBrowser.fromPageForTests(page);
+  const owner = await browser.element("iframe");
+  await assert.rejects(browser.frame(owner!).element("#recaptcha-anchor", 0), error => error === failure);
+  assert.equal(transport.calls.some(([method, params, session]) =>
+    method === "Runtime.evaluate" && session === "captcha-session" && String(params.expression).includes("querySelectorAll")), false);
+  await browser.close();
+});
+
+test("an in-process child of an OOPIF uses its parent session", async () => {
+  const transport = new FakeTransport();
+  const page = await CdpPage.create(transport, "page", "root");
+  const context = await page.createFrameContext("nested-local-frame", "captcha-session");
+  assert.equal(context.sessionId, "captcha-session");
+  assert.ok(transport.calls.some(([method, params, session]) =>
+    method === "Page.createIsolatedWorld" && params.frameId === "nested-local-frame" && session === "captcha-session"));
+  await page.close();
+});
+
+test("pinned frame owners resolve by backend identity after sibling locators change", async () => {
+  const transport = new FakeTransport();
+  const page = await CdpPage.create(transport, "page", "root");
+  const browser = CdpBrowser.fromPageForTests(page);
+  const owner = await browser.element("iframe");
+  const pinned = await owner!.pin();
+  const original = transport.call.bind(transport);
+  transport.call = async (method, params = {}, options) => {
+    if (method === "Runtime.evaluate" && String(params.expression).includes("querySelectorAll")) {
+      throw new Error("The previous iframe index now belongs to a different widget");
+    }
+    return original(method, params, options);
+  };
+  assert.equal(await pinned.frameId(), "captcha-frame");
+  assert.ok(transport.calls.some(([method, params]) => method === "DOM.resolveNode" && params.backendNodeId === 1));
+  await browser.close();
+});
+
+test("DOM lookup propagates connection errors without polling until timeout", async () => {
+  const transport = new FakeTransport();
+  const page = await CdpPage.create(transport, "page", "root");
+  const failure = new CdpConnectionError("Connection closed");
+  let calls = 0;
+  transport.call = async () => { calls += 1; throw failure; };
+  await assert.rejects(CdpBrowser.fromPageForTests(page).element("iframe", 10_000), error => error === failure);
+  assert.equal(calls, 1);
 });
 
 test("trusted clicks reject covered targets and unusable headless viewports", async () => {
@@ -356,8 +426,15 @@ test("port discovery prefers an exact URL and rejects non-loopback WebSockets", 
     assert.equal(selectedTarget, "exact");
     assert.equal(chrome.browserVersion, "Chrome/150.0");
     assert.equal((await chrome.listTabs()).length, 2);
-    CdpChrome.requestJson = async () => ({ webSocketDebuggerUrl: "ws://192.0.2.1/devtools/browser/id" });
-    await assert.rejects(CdpChrome.connect(9222), /loopback/);
+    for (const webSocketDebuggerUrl of [
+      "ws://192.0.2.1/devtools/browser/id",
+      "wss://production-sfo.browserless.io?token=test",
+      "wss://localhost/devtools/browser/id",
+    ]) {
+      CdpChrome.requestJson = async () => ({ webSocketDebuggerUrl });
+      await assert.rejects(CdpChrome.connect(9222), /loopback/);
+      await assert.rejects(chrome.isAvailable(), /loopback/);
+    }
   } finally {
     CdpChrome.requestJson = originalRequest;
     CdpBrowser.connect = originalConnect;
@@ -402,14 +479,19 @@ test("direct WebSocket discovery and page attachment reuse one browser transport
     } as unknown as CdpBrowser;
   };
   try {
-    const chrome = await CdpChrome.connectWebSocket("ws://localhost:3000");
+    const endpoint = "wss://production-sfo.browserless.io/devtools/browser/session?token=test%2Btoken";
+    const chrome = await CdpChrome.connectWebSocket(endpoint);
     await chrome.selectTab("https://example.com/signup");
-    assert.equal(connectedUrl, "ws://localhost:3000");
+    assert.equal(connectedUrl, endpoint);
+    assert.equal(chrome.timeoutMs, 30_000);
     assert.equal(attachedTransport, transport);
     assert.equal(attachedTarget, "exact");
     assert.equal(chrome.browserVersion, "Chrome/150.0");
     assert.equal(calls.filter((method) => method === "Browser.getVersion").length, 1);
     assert.equal(calls.filter((method) => method === "Target.getTargets").length, 2);
+    await assert.rejects(chrome.selectTab("https://example.com/missing"), /existing Puppeteer page.*reconnect endpoint/);
+    assert.equal(calls.includes("Target.createTarget"), false);
+    assert.equal(calls.includes("Page.navigate"), false);
     await chrome.close();
     assert.equal(selectedPageClosed, true);
     assert.equal(transport.closed, true);

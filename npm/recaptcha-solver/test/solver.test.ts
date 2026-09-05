@@ -172,6 +172,11 @@ test("validates the stable public options contract", () => {
   );
   assert.doesNotThrow(() => validateSolveOptions({
     targetUrl: "https://example.com",
+    browserWSEndpoint: "wss://production-sfo.browserless.io?token=test",
+    clickCheckbox: true,
+  }));
+  assert.doesNotThrow(() => validateSolveOptions({
+    targetUrl: "https://example.com",
     browserWSEndpoint: "ws://localhost:3000",
     clickCheckbox: true,
   }));
@@ -205,7 +210,7 @@ test("validates the stable public options contract", () => {
   for (const browserWSEndpoint of [
     "",
     "http://localhost:3000",
-    "wss://localhost:3000",
+    "wss://localhost:3000/#fragment",
     "ws://192.0.2.1:3000",
     "not-a-url",
   ]) {
