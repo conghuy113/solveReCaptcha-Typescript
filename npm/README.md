@@ -135,12 +135,12 @@ workflow when that application must retain ownership of the cloud browser.
 
 ## Next npm release
 
-The package manifest is set to `0.5.0`. Publish from the matching `v0.5.0`
+The package manifest is set to `0.5.1`. Publish from the matching `v0.5.1`
 GitHub Release after committing and reviewing the source. The publish workflow
 checks that the release tag matches the manifest; it does not increment the
 version automatically. A read-only preflight is:
 
 ```bash
-node packaging/check_release_candidate.mjs v0.5.0 --manifest-only
+node packaging/check_release_candidate.mjs v0.5.1 --manifest-only
 node packaging/check_registry_version.mjs
 ```

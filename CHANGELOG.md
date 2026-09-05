@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## 0.5.0 — 2026-09-05
+## 0.5.1 — 2026-09-05
 
 - Accept remote `wss://` browser-level CDP endpoints with normal TLS and
   hostname verification, preserving authentication query parameters.
